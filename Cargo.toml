@@ -9,3 +9,9 @@ edition = "2021"
 
 image = { version = "0.24.6"}
 
+
+# https://doc.rust-lang.org/cargo/reference/profiles.html
+[profile.dev]
+# Enable some optimisations, but not all of it.
+opt-level = 2
+debug = 1
