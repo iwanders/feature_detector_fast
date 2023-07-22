@@ -60,32 +60,44 @@ pub mod fast_detector16 {
         };
 
         // Implement the cardinal directions shortcut
-        let deltas = [delta_f(NORTH), delta_f(EAST), delta_f(SOUTH), delta_f(WEST)];
+
+        const COUNT: usize = circle().len() as usize;
+        let mut neg = [false; COUNT];
+        let mut pos = [false; COUNT];
+
+        for ind in [NORTH, EAST, SOUTH, WEST] {
+            let d = delta_f(ind);
+            let a = d.abs();
+            
+            neg[ind] = d < 0 && a >= t as i16;
+            pos[ind] = d > 0 && a >= t as i16;
+        }
+        
+        // let deltas = [delta_f(NORTH), delta_f(EAST), delta_f(SOUTH), delta_f(WEST)];
 
         let min_count = n / 4;
 
-        let negative = deltas
-            .iter()
-            .map(|x| x < &0 && x.abs() >= t as i16)
-            .skip_while(|t| !t)
-            .take_while(|t| *t)
+        let spot_neg = [&neg[NORTH], &neg[EAST], &neg[SOUTH], &neg[WEST]]; 
+        let spot_pos = [&pos[NORTH], &pos[EAST], &pos[SOUTH], &pos[WEST]]; 
+
+        let negative = spot_neg.iter()
+            .skip_while(|t| !**t)
+            .take_while(|t| ***t)
             .count()
             >= min_count as usize;
-        let positive = deltas
-            .iter()
-            .map(|x| x > &0 && x.abs() >= t as i16)
-            .skip_while(|t| !t)
-            .take_while(|t| *t)
+        let positive = spot_pos.iter()
+            .skip_while(|t| !**t)
+            .take_while(|t| ***t)
             .count()
             >= min_count as usize;
         if !(negative || positive) {
             return None;
         }
 
-        const COUNT: usize = circle().len() as usize;
-        let mut neg = [false; COUNT];
-        let mut pos = [false; COUNT];
         for i in 0..COUNT {
+            if [NORTH, EAST, SOUTH, WEST].contains(&i) {
+                continue;
+            }
             let d = delta_f(i);
             let a = d.abs();
             neg[i] = d < 0 && a >= t as i16;
