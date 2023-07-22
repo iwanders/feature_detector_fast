@@ -39,8 +39,8 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         r.push(p);
     }
     let start = std::time::Instant::now();
-    // let mut keypoints = fast::detector(&luma_view, &config);
-    let mut keypoints = fast::detector12(&luma_view, &config);
+    let mut keypoints = fast::detector(&luma_view, &config);
+    // let mut keypoints = fast::detector12(&luma_view, &config);
 
     let duration = start.elapsed();
     println!("Time elapsed in expensive_function() is: {:?}", duration);

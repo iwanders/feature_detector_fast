@@ -86,8 +86,6 @@ pub mod fast_detector16 {
         let negative_known = three_neg1 || three_neg2 || three_neg3 || three_neg4;
         let positive_known = three_pos1 || three_pos2 || three_pos3 || three_pos4;
 
-        const consecutive: u8 = 12;
-
         if !(negative_known || positive_known) {
             return None;
         }
@@ -95,7 +93,7 @@ pub mod fast_detector16 {
         const COUNT: usize = circle().len() as usize;
         let mut mask = [false; COUNT];
 
-        if (negative_known) {
+        if negative_known {
             for i in 0..COUNT {
                 let d = delta_f(i);
                 mask[i] = d < nt;
@@ -108,7 +106,12 @@ pub mod fast_detector16 {
             }
         }
 
-        // This here is less than ideal.
+        // This here is less than ideal, we should be able to do it in one pass
+        // 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+        // 0 0 0 0 0 0 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0
+        // 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0
+
+        let consecutive = 12;
         for s in 0..COUNT {
             let n = mask
                 .iter()
@@ -140,9 +143,6 @@ pub mod fast_detector16 {
         // exists range n where all entries different than p - t.
 
         let base_v = image.get_pixel(x, y)[0];
-
-        let nt = -1 * (t as i16);
-        let pt = t as i16;
 
         let delta_f = |index: usize| {
             let offset = point(index as u8);
@@ -249,7 +249,7 @@ pub fn detector(
     for y in 3..(height - 3) {
         for x in 3..(width - 3) {
             if let Some(p) =
-                fast_detector16::detect((x, y), img, config.thresshold as u16 * 3, config.count)
+                fast_detector16::detect((x, y), img, config.thresshold as u16 , config.count)
             {
                 r.push(p);
             }
@@ -270,7 +270,7 @@ pub fn detector12(
 
     for y in 3..(height - 3) {
         for x in 3..(width - 3) {
-            if let Some(p) = fast_detector16::detect12((x, y), img, config.thresshold as u16 * 3) {
+            if let Some(p) = fast_detector16::detect12((x, y), img, config.thresshold as u16 ) {
                 r.push(p);
             }
         }
