@@ -19,8 +19,6 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         count: 12,
     };
 
-    let start = std::time::Instant::now();
-
     let mut r = vec![];
 
     if let Some(p) = fast::fast_detector16::detect(
@@ -40,13 +38,15 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     ) {
         r.push(p);
     }
+    let start = std::time::Instant::now();
+    // let mut keypoints = fast::detector(&luma_view, &config);
+    let mut keypoints = fast::detector12(&luma_view, &config);
 
-    let mut keypoints = fast::detector(&luma_view, &config);
+    let duration = start.elapsed();
+    println!("Time elapsed in expensive_function() is: {:?}", duration);
     r.extend(&mut keypoints.drain(..));
 
     // let keypoints = if kp.is_some() {vec![kp.unwrap()]} else {vec![]};
-    let duration = start.elapsed();
-    println!("Time elapsed in expensive_function() is: {:?}", duration);
 
     // let owned = image::ImageBuffer::<image::Luma<u16>, Vec<_>>::from(&luma_view);
     // let grey_owned = luma_view.to_grey();
