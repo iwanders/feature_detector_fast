@@ -1,4 +1,4 @@
-use image::{GenericImageView, Luma, Rgb};
+use image::{GenericImageView, Luma};
 
 #[derive(Copy, Debug, Clone)]
 pub struct FastPoint {
@@ -55,7 +55,8 @@ pub mod fast_detector16 {
             let offset = point(index as u8);
             let t_x = (x as i32 + offset.0) as u32;
             let t_y = (y as i32 + offset.1) as u32;
-            let pixel_v = image.get_pixel(t_x, t_y)[0];
+            // Using unsafe here shaves off ~15%.
+            let pixel_v = unsafe { image.unsafe_get_pixel(t_x, t_y)[0] };
 
             let delta = pixel_v as i16 - base_v as i16;
             delta
