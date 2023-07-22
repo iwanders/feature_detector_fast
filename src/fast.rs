@@ -1,11 +1,12 @@
-use image::{Rgb, GenericImageView, Luma};
+use image::{GenericImageView, Luma, Rgb};
 
+#[derive(Copy, Debug, Clone)]
 pub struct FastPoint {
     pub x: u32,
     pub y: u32,
 }
 
-mod fast_detector16 {
+pub mod fast_detector16 {
     use super::*;
 
     pub const NORTH: usize = 0;
@@ -14,7 +15,7 @@ mod fast_detector16 {
     pub const WEST: usize = 12;
 
     /// The circle with 16 pixels.
-    pub const  fn circle() -> [(i32, i32); 16] {
+    pub const fn circle() -> [(i32, i32); 16] {
         [
             (0, 3),
             (1, 3),
@@ -39,43 +40,85 @@ mod fast_detector16 {
         circle()[(start + index) as usize % circle().len()]
     }
 
-    pub fn detect((x, y): (u32, u32), image: &dyn GenericImageView<Pixel=Luma<u16>>, t: u16, n: u8) -> Option<FastPoint> {
+    pub fn detect(
+        (x, y): (u32, u32),
+        image: &dyn GenericImageView<Pixel = Luma<u16>>,
+        t: u16,
+        n: u8,
+    ) -> Option<FastPoint> {
         // exists range n where all entries different than p - t.
-        // ignore cardinal direction shortcut.
-
-        let mut consecutive = 0;
-        let mut previous = 0;
 
         let base_v = image.get_pixel(x, y)[0];
+        let delta_f = |index: usize| {
+            let offset = point(0, index as u8);
+            let t_x = (x as i32 + offset.0) as u32;
+            let t_y = (y as i32 + offset.1) as u32;
+            let pixel_v = image.get_pixel(t_x, t_y)[0];
 
-        const COUNT: u8 = circle().len() as u8;
+            let delta = pixel_v as i16 - base_v as i16;
+            delta
+        };
+
+        // Implement the cardinal directions shortcut
+        let deltas = [delta_f(NORTH), delta_f(EAST), delta_f(SOUTH), delta_f(WEST)];
+
+        let min_count = n / 4;
+
+        let negative = deltas
+            .iter()
+            .map(|x| x < &0 && x.abs() >= t as i16)
+            .skip_while(|t| !t)
+            .take_while(|t| *t)
+            .count()
+            >= min_count as usize;
+        let positive = deltas
+            .iter()
+            .map(|x| x > &0 && x.abs() >= t as i16)
+            .skip_while(|t| !t)
+            .take_while(|t| *t)
+            .count()
+            >= min_count as usize;
+        if !(negative || positive) {
+            return None;
+        }
+
+        const COUNT: usize = circle().len() as usize;
+        let mut neg = [false; COUNT];
+        let mut pos = [false; COUNT];
+        for i in 0..COUNT {
+            let d = delta_f(i);
+            let a = d.abs();
+            neg[i] = d < 0 && a >= t as i16;
+            pos[i] = d > 0 && a >= t as i16;
+        }
+
         for s in 0..COUNT {
-            for i in 0..COUNT {
-                let offset = point(s, i);
-                let t_x = (x as i32 + offset.0) as u32;
-                let t_y = (y as i32 + offset.1) as u32;
-                let pixel_v = image.get_pixel(t_x, t_y)[0];
-
-                let delta = pixel_v as i16 - base_v as i16;
-
-                if delta.abs() as u16 >= t {
-                    if delta.is_positive() && previous > 0 {
-                        consecutive += 1;
-                    } else  if delta.is_negative() && previous < 0 {
-                        consecutive += 1;
-                    } else {
-                        consecutive = 0;
-                    }
-                } else {
-                    consecutive = 0;
-                }
-                previous = delta;
-
-                if consecutive >= n {
-                    return Some(FastPoint{x, y});
-                }
+            let t = neg
+                .iter()
+                .cycle()
+                .skip(s)
+                .take(COUNT)
+                .skip_while(|t| !**t)
+                .take_while(|t| **t)
+                .count()
+                > n as usize;
+            if t {
+                return Some(FastPoint { x, y });
+            }
+            let t = pos
+                .iter()
+                .cycle()
+                .skip(s)
+                .take(COUNT)
+                .skip_while(|t| !**t)
+                .take_while(|t| **t)
+                .count()
+                > n as usize;
+            if t {
+                return Some(FastPoint { x, y });
             }
         }
+
         None
     }
 }
@@ -87,7 +130,10 @@ pub struct FastConfig {
     pub count: u8,
 }
 
-pub fn detector(img: &dyn GenericImageView<Pixel=Rgb<u8>>, config: &FastConfig) -> Vec<FastPoint> {
+pub fn detector(
+    img: &dyn GenericImageView<Pixel = Rgb<u8>>,
+    config: &FastConfig,
+) -> Vec<FastPoint> {
     let luma_view = crate::util::Rgb8ToLuma16View::new(img);
 
     let (width, height) = img.dimensions();
@@ -96,13 +142,15 @@ pub fn detector(img: &dyn GenericImageView<Pixel=Rgb<u8>>, config: &FastConfig) 
 
     for y in 3..(height - 3) {
         for x in 3..(width - 3) {
-            if let Some(p) = fast_detector16::detect((x, y), &luma_view, config.thresshold as u16 * 3, config.count) {
+            if let Some(p) = fast_detector16::detect(
+                (x, y),
+                &luma_view,
+                config.thresshold as u16 * 3,
+                config.count,
+            ) {
                 r.push(p);
             }
         }
     }
-r
-
+    r
 }
-
-

@@ -1,6 +1,5 @@
-
-mod util;
-mod fast;
+pub mod fast;
+pub mod util;
 
 use image;
 
@@ -19,7 +18,33 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         count: 12,
     };
 
-    let keypoints = fast::detector(&orig_image, &config);
+    let start = std::time::Instant::now();
+
+    let mut r = vec![];
+
+    if let Some(p) = fast::fast_detector16::detect(
+        (738, 710),
+        &luma_view,
+        config.thresshold as u16 * 3,
+        config.count,
+    ) {
+        r.push(p);
+    }
+    if let Some(p) = fast::fast_detector16::detect(
+        (920, 901),
+        &luma_view,
+        config.thresshold as u16 * 3,
+        config.count,
+    ) {
+        r.push(p);
+    }
+
+    let mut keypoints = fast::detector(&orig_image, &config);
+    r.extend(&mut keypoints.drain(..));
+
+    // let keypoints = if kp.is_some() {vec![kp.unwrap()]} else {vec![]};
+    let duration = start.elapsed();
+    println!("Time elapsed in expensive_function() is: {:?}", duration);
 
     // let owned = image::ImageBuffer::<image::Luma<u16>, Vec<_>>::from(&luma_view);
     let grey_owned = luma_view.to_grey();
@@ -27,7 +52,8 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let mut rgb_owned = image::DynamicImage::ImageLuma8(grey_owned).to_rgb8();
     // let mut rgb_owned = grey_owned.to_rgb8();
 
-    for kp in keypoints.iter() {
+    for kp in r.iter() {
+        // println!("kp: {kp:?}");
         util::draw_plus(&mut rgb_owned, (kp.x, kp.y), util::RED);
     }
 
