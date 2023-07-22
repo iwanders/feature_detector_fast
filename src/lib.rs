@@ -15,7 +15,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = fast::FastConfig {
         thresshold: 32,
-        count: 12,
+        count: 8,
     };
 
     let start = std::time::Instant::now();
@@ -23,15 +23,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let mut r = vec![];
 
     if let Some(p) = fast::fast_detector16::detect(
-        (738, 710),
-        &luma_view,
-        config.thresshold as u16 * 3,
-        config.count,
-    ) {
-        r.push(p);
-    }
-    if let Some(p) = fast::fast_detector16::detect(
-        (920, 901),
+        (723, 258),
         &luma_view,
         config.thresshold as u16 * 3,
         config.count,
@@ -39,8 +31,17 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         r.push(p);
     }
 
-    let mut keypoints = fast::detector(&orig_image, &config);
-    r.extend(&mut keypoints.drain(..));
+    if let Some(p) = fast::fast_detector16::detect(
+        (487, 254),
+        &luma_view,
+        config.thresshold as u16 * 3,
+        config.count,
+    ) {
+        r.push(p);
+    }
+
+    // let mut keypoints = fast::detector(&orig_image, &config);
+    // r.extend(&mut keypoints.drain(..));
 
     // let keypoints = if kp.is_some() {vec![kp.unwrap()]} else {vec![]};
     let duration = start.elapsed();

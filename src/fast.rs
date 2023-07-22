@@ -7,6 +7,8 @@ pub struct FastPoint {
 }
 
 pub mod fast_detector16 {
+    const PRINT: bool = true;
+
     use super::*;
 
     pub const NORTH: usize = 0;
@@ -36,21 +38,21 @@ pub mod fast_detector16 {
         ]
     }
 
-    pub const fn point(start: u8, index: u8) -> (i32, i32) {
-        circle()[(start + index) as usize % circle().len()]
+    pub const fn point(index: u8) -> (i32, i32) {
+        circle()[index as usize % circle().len()]
     }
 
     pub fn detect(
         (x, y): (u32, u32),
         image: &dyn GenericImageView<Pixel = Luma<u16>>,
         t: u16,
-        n: u8,
+        consecutive: u8,
     ) -> Option<FastPoint> {
         // exists range n where all entries different than p - t.
 
         let base_v = image.get_pixel(x, y)[0];
         let delta_f = |index: usize| {
-            let offset = point(0, index as u8);
+            let offset = point(index as u8);
             let t_x = (x as i32 + offset.0) as u32;
             let t_y = (y as i32 + offset.1) as u32;
             let pixel_v = image.get_pixel(t_x, t_y)[0];
@@ -60,64 +62,49 @@ pub mod fast_detector16 {
         };
 
         // Implement the cardinal directions shortcut
+        let deltas = [delta_f(NORTH), delta_f(EAST), delta_f(SOUTH), delta_f(WEST)];
 
-        const COUNT: usize = circle().len() as usize;
-        let mut neg = [false; COUNT];
-        let mut pos = [false; COUNT];
+        let consecutive_cardinal = consecutive / 4;
 
-        for ind in [NORTH, EAST, SOUTH, WEST] {
-            let d = delta_f(ind);
-            let a = d.abs();
-            
-            neg[ind] = d < 0 && a >= t as i16;
-            pos[ind] = d > 0 && a >= t as i16;
-        }
-        
-        // let deltas = [delta_f(NORTH), delta_f(EAST), delta_f(SOUTH), delta_f(WEST)];
-
-        let min_count = n / 4;
-
-        let spot_neg = [&neg[NORTH], &neg[EAST], &neg[SOUTH], &neg[WEST]]; 
-        let spot_pos = [&pos[NORTH], &pos[EAST], &pos[SOUTH], &pos[WEST]]; 
-
-        let negative = spot_neg.iter()
-            .skip_while(|t| !**t)
-            .take_while(|t| ***t)
+        let negative = deltas
+            .iter()
+            .map(|x| x < &0 && x.abs() >= t as i16)
+            .skip_while(|t| !t)
+            .take_while(|t| *t)
             .count()
-            >= min_count as usize;
-        let positive = spot_pos.iter()
-            .skip_while(|t| !**t)
-            .take_while(|t| ***t)
+            >= consecutive_cardinal as usize;
+        let positive = deltas
+            .iter()
+            .map(|x| x > &0 && x.abs() >= t as i16)
+            .skip_while(|t| !t)
+            .take_while(|t| *t)
             .count()
-            >= min_count as usize;
+            >= consecutive_cardinal as usize;
         if !(negative || positive) {
             return None;
         }
 
+        const COUNT: usize = circle().len() as usize;
+        let mut neg = [false; COUNT];
+        let mut pos = [false; COUNT];
         for i in 0..COUNT {
-            if [NORTH, EAST, SOUTH, WEST].contains(&i) {
-                continue;
-            }
             let d = delta_f(i);
             let a = d.abs();
             neg[i] = d < 0 && a >= t as i16;
             pos[i] = d > 0 && a >= t as i16;
         }
 
-        for s in 0..COUNT {
-            let t = neg
-                .iter()
-                .cycle()
-                .skip(s)
-                .take(COUNT)
-                .skip_while(|t| !**t)
-                .take_while(|t| **t)
-                .count()
-                > n as usize;
-            if t {
-                return Some(FastPoint { x, y });
+        if PRINT {
+            for i in 0..COUNT {
+                print!("{} ", delta_f(i));
             }
-            let t = pos
+            println!(" t: {t}");
+            println!("neg: {neg:?}");
+            println!("pos: {pos:?}");
+        }
+
+        for s in 0..COUNT {
+            let n = neg
                 .iter()
                 .cycle()
                 .skip(s)
@@ -125,8 +112,21 @@ pub mod fast_detector16 {
                 .skip_while(|t| !**t)
                 .take_while(|t| **t)
                 .count()
-                > n as usize;
-            if t {
+                > consecutive as usize;
+            let p = pos
+                .iter()
+                .cycle()
+                .skip(s)
+                .take(COUNT)
+                .skip_while(|t| !**t)
+                .take_while(|t| **t)
+                .count()
+                > consecutive as usize;
+
+            if n || p {
+                if PRINT {
+                    println!("Succceed by p: {p}, n: {n} at s {s}");
+                }
                 return Some(FastPoint { x, y });
             }
         }
