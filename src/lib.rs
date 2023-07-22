@@ -11,11 +11,12 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         .expect(&format!("could not load image at {:?}", input_image_file))
         .to_rgb8();
 
-    let luma_view = util::Rgb8ToLuma16View::new(&orig_image);
+    // let luma_view = util::Rgb8ToLuma16View::new(&orig_image);
+    let luma_view = image::DynamicImage::ImageRgb8(orig_image.clone()).to_luma8();
 
     let config = fast::FastConfig {
         thresshold: 32,
-        count: 8,
+        count: 12,
     };
 
     let start = std::time::Instant::now();
@@ -40,17 +41,17 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         r.push(p);
     }
 
-    // let mut keypoints = fast::detector(&orig_image, &config);
-    // r.extend(&mut keypoints.drain(..));
+    let mut keypoints = fast::detector(&luma_view, &config);
+    r.extend(&mut keypoints.drain(..));
 
     // let keypoints = if kp.is_some() {vec![kp.unwrap()]} else {vec![]};
     let duration = start.elapsed();
     println!("Time elapsed in expensive_function() is: {:?}", duration);
 
     // let owned = image::ImageBuffer::<image::Luma<u16>, Vec<_>>::from(&luma_view);
-    let grey_owned = luma_view.to_grey();
+    // let grey_owned = luma_view.to_grey();
 
-    let mut rgb_owned = image::DynamicImage::ImageLuma8(grey_owned).to_rgb8();
+    let mut rgb_owned = image::DynamicImage::ImageLuma8(luma_view.clone()).to_rgb8();
     // let mut rgb_owned = grey_owned.to_rgb8();
 
     for kp in r.iter() {

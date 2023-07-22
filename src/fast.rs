@@ -7,7 +7,7 @@ pub struct FastPoint {
 }
 
 pub mod fast_detector16 {
-    const PRINT: bool = true;
+    const PRINT: bool = false;
 
     use super::*;
 
@@ -44,7 +44,7 @@ pub mod fast_detector16 {
 
     pub fn detect(
         (x, y): (u32, u32),
-        image: &dyn GenericImageView<Pixel = Luma<u16>>,
+        image: &dyn GenericImageView<Pixel = Luma<u8>>,
         t: u16,
         consecutive: u8,
     ) -> Option<FastPoint> {
@@ -143,10 +143,10 @@ pub struct FastConfig {
 }
 
 pub fn detector(
-    img: &dyn GenericImageView<Pixel = Rgb<u8>>,
+    img: &dyn GenericImageView<Pixel = Luma<u8>>,
     config: &FastConfig,
 ) -> Vec<FastPoint> {
-    let luma_view = crate::util::Rgb8ToLuma16View::new(img);
+    // let luma_view = crate::util::Rgb8ToLuma16View::new(img);
 
     let (width, height) = img.dimensions();
 
@@ -154,12 +154,9 @@ pub fn detector(
 
     for y in 3..(height - 3) {
         for x in 3..(width - 3) {
-            if let Some(p) = fast_detector16::detect(
-                (x, y),
-                &luma_view,
-                config.thresshold as u16 * 3,
-                config.count,
-            ) {
+            if let Some(p) =
+                fast_detector16::detect((x, y), img, config.thresshold as u16 * 3, config.count)
+            {
                 r.push(p);
             }
         }
