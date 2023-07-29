@@ -13,7 +13,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
 
     // let luma_view = util::Rgb8ToLuma16View::new(&orig_image);
     let luma_view = image::DynamicImage::ImageRgb8(orig_image.clone()).to_luma8();
-    let _ = luma_view.save("/tmp/rust_grey.png");
+    let _ = luma_view.save("/tmp/rust_grey.png")?;
 
     let config = fast::FastConfig {
         threshold: 32,
@@ -43,6 +43,10 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let mut keypoints = fast::detector(&luma_view, &config);
     // let mut keypoints = fast::detector12(&luma_view, &config);
 
+    let circle_image = fast::fast_detector16::make_circle_image();
+    let _ = circle_image.save("/tmp/circle_image.png")?;
+    
+
     let duration = start.elapsed();
     println!("Time elapsed in expensive_function() is: {:?}", duration);
     r.extend(&mut keypoints.drain(..));
@@ -57,7 +61,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
 
     for kp in r.iter() {
         // println!("kp: {kp:?}");
-        util::draw_plus(&mut rgb_owned, (kp.x, kp.y), util::RED);
+        util::draw_plus_sized(&mut rgb_owned, (kp.x, kp.y), util::RED, 1);
     }
 
     let _ = rgb_owned.save("/tmp/grey.png");
