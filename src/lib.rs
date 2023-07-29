@@ -16,32 +16,17 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let _ = luma_view.save("/tmp/rust_grey.png")?;
 
     let config = fast::FastConfig {
-        threshold: 64,
+        threshold: 16,
         count: 9,
     };
 
     let mut r = vec![];
 
-    // if let Some(p) = fast::fast_detector16::detect(
-        // (723, 258),
-        // &luma_view,
-        // config.thresshold as u16 * 3,
-        // config.count,
-    // ) {
-        // r.push(p);
-    // }
-
-    // if let Some(p) = fast::fast_detector16::detect(
-        // (487, 254),
-        // &luma_view,
-        // config.thresshold as u16 * 3,
-        // config.count,
-    // ) {
-        // r.push(p);
-    // }
     let start = std::time::Instant::now();
     let mut keypoints = fast::detector(&luma_view, &config);
     // let mut keypoints = fast::detector12(&luma_view, &config);
+
+    let mut keypoints = fast::fast_detector16::non_max_supression(&luma_view, &keypoints);
 
     let circle_image = fast::fast_detector16::make_circle_image();
     let _ = circle_image.save("/tmp/circle_image.png")?;
@@ -64,7 +49,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         util::draw_plus_sized(&mut rgb_owned, (kp.x, kp.y), util::RED, 1);
     }
 
-    let _ = rgb_owned.save("/tmp/grey.png");
+    let _ = rgb_owned.save("/tmp/with_rust.png");
 
     Ok(())
 }

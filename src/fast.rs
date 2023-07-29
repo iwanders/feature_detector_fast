@@ -1,6 +1,16 @@
 use image::{GenericImageView, Luma};
 
-#[derive(Copy, Debug, Clone)]
+/*
+
+The original implementation from https://web.archive.org/web/20070708064606/http://mi.eng.cam.ac.uk/~er258/work/fast.html does not match the output of opencv.
+
+The (non-max) fast_detector16::detect() here matches opencv for a count of 9.
+
+The reference non-max implementation can can have three keypoints adjecent on a single row.
+
+*/
+
+#[derive(Copy, Debug, Clone, Eq, PartialEq)]
 pub struct FastPoint {
     pub x: u32,
     pub y: u32,
@@ -77,7 +87,6 @@ pub mod fast_detector16 {
             let offset = point(index as u8);
             let t_x = (x as i32 + offset.0) as u32;
             let t_y = (y as i32 + offset.1) as u32;
-            // Using unsafe here shaves off ~15%.
             let pixel_v = image.get_pixel(t_x, t_y)[0];
 
             let delta = base_v as i16 - pixel_v as i16;
@@ -87,7 +96,6 @@ pub mod fast_detector16 {
             let offset = point(index as u8);
             let t_x = (x as i32 + offset.0) as u32;
             let t_y = (y as i32 + offset.1) as u32;
-            // Using unsafe here shaves off ~15%.
             image.get_pixel(t_x, t_y)[0]
         };
 
@@ -141,6 +149,69 @@ pub mod fast_detector16 {
         }
 
         None
+    }
+
+    // This is different from opencv.
+    pub fn non_max_supression(image: &dyn GenericImageView<Pixel = Luma<u8>>,keypoints: &[FastPoint]) -> Vec<FastPoint> {
+        // Very inefficient.
+        let mut res = vec![];
+        const COUNT: usize = circle().len() as usize;
+
+        let score = |x, y| {
+            let t = 16i16;
+            // Eq 8 of rosten2006, LNCS3951.
+            let base_v = image.get_pixel(x, y)[0];
+            let mut sum_bright = 0;
+            let mut sum_dark = 0;
+            for i in 0..COUNT {
+                let offset = point(i as u8);
+                let t_x = (x as i32 + offset.0) as u32;
+                let t_y = (y as i32 + offset.1) as u32;
+                let p = base_v as i16;
+                let pixel_v = image.get_pixel(t_x, t_y)[0] as i16;
+
+                if pixel_v >= (p + t) {
+                    sum_bright += (pixel_v - p).abs() - t;
+                }
+                if pixel_v <= (p - t) {
+                    sum_dark += (p - pixel_v).abs() - t;
+                }
+
+            }
+            sum_bright.max(sum_dark)
+        };
+
+
+        'kpiter: for kp in keypoints.iter() {
+            let current_score = score(kp.x, kp.y);
+            if kp.x == 3 || kp.x == image.width() - 4 {
+                continue 'kpiter;
+            }
+            if kp.y == 3 || kp.y == image.height() - 4 {
+                continue 'kpiter;
+            }
+            for dx in [-1i32, 0, 1] {
+                for dy in [-1i32, 0, 1] {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    // check if this keypoint exists.
+                    let zx = (kp.x as i32 + dx) as u32;
+                    let zy = (kp.y as i32 + dy) as u32;
+                    if !keypoints.contains(&FastPoint{x: zx, y: zy}) {
+                        continue;
+                    }
+
+                    let other_score = score(zx , zy);
+                    if current_score <= other_score {
+                        continue 'kpiter;
+                    }
+                }
+            }
+            res.push(*kp);
+
+        }
+        res
     }
 }
 
