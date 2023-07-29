@@ -7,7 +7,7 @@ pub struct FastPoint {
 }
 
 pub mod fast_detector16 {
-    const DO_PRINTS: bool = true;
+    const DO_PRINTS: bool = false;
 
     macro_rules! trace {
         () => (if DO_PRINTS {println!("\n");});

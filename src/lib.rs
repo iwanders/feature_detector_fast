@@ -16,7 +16,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let _ = luma_view.save("/tmp/rust_grey.png")?;
 
     let config = fast::FastConfig {
-        threshold: 32,
+        threshold: 64,
         count: 9,
     };
 
