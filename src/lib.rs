@@ -18,6 +18,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let config = fast::FastConfig {
         threshold: 16,
         count: 9,
+        non_maximal_supression: true,
     };
 
     let mut r = vec![];
@@ -25,8 +26,6 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let start = std::time::Instant::now();
     let mut keypoints = fast::detector(&luma_view, &config);
     // let mut keypoints = fast::detector12(&luma_view, &config);
-
-    let mut keypoints = fast::fast_detector16::non_max_supression(&luma_view, &keypoints);
 
     let circle_image = fast::fast_detector16::make_circle_image();
     let _ = circle_image.save("/tmp/circle_image.png")?;

@@ -4,17 +4,21 @@ use image::{GenericImageView, Luma};
 
 The original implementation from https://web.archive.org/web/20070708064606/http://mi.eng.cam.ac.uk/~er258/work/fast.html does not match the output of opencv.
 
-The (non-max) fast_detector16::detect() here matches opencv for a count of 9.
+The fast_detector16::detect() without non maximal supression here matches opencv for a count of 9.
 
-The reference non-max implementation can can have three keypoints adjecent on a single row.
-
+The reference non-max implementation can can have three keypoints adjecent on a single row. Which
+should be impossible?
 
 OpenCV's nonmax score function is threshold for which the point would still be a keypoint.
     Which the paper states a lot of pixels will share the value.
     And enabling VERIFY_CORNERS make the asserts fail.
     So they use a score function the authors don't recommend, and the asserts fail if enabled.
-    Lets not dwell on the fact that our nonmax logic doesn't match opencvs.
 
+So, basically:
+    - OpenCV doesn't match original author's implementation.
+    - OpenCV implements a score function that is not recommended, and internal asserts fail,
+      indicating that it doesn't not find the correct value to which the threshold could be raised
+      for that point to still be a keypoint.
 */
 
 #[derive(Copy, Debug, Clone, Eq, PartialEq)]
@@ -24,8 +28,9 @@ pub struct FastPoint {
 }
 
 pub mod fast_detector16 {
-    const DO_PRINTS: bool = true;
+    const DO_PRINTS: bool = false;
 
+    #[allow(unused_macros)]
     macro_rules! trace {
         () => (if DO_PRINTS {println!("\n");});
         ($($arg:tt)*) => {
@@ -81,9 +86,10 @@ pub mod fast_detector16 {
     pub fn detect(
         (x, y): (u32, u32),
         image: &dyn GenericImageView<Pixel = Luma<u8>>,
-        t: u16,
+        t: u8,
         consecutive: u8,
     ) -> Option<FastPoint> {
+        let t = t as i16;
         // exists range n where all entries different than p - t.
 
         let base_v = image.get_pixel(x, y)[0];
@@ -129,6 +135,7 @@ pub mod fast_detector16 {
             println!("  pos: {pos:?}");
         }
 
+        // There's probably a way more efficient way of doing this rotation.
         for s in 0..COUNT {
             let n = neg
                 .iter()
@@ -158,14 +165,14 @@ pub mod fast_detector16 {
         None
     }
 
-    // This is different from opencv.
-    pub fn non_max_supression(image: &dyn GenericImageView<Pixel = Luma<u8>>,keypoints: &[FastPoint]) -> Vec<FastPoint> {
+    /// This is different from opencv, and VERY inefficient.
+    pub fn non_max_supression(image: &dyn GenericImageView<Pixel = Luma<u8>>,keypoints: &[FastPoint], threshold: u8) -> Vec<FastPoint> {
         // Very inefficient.
         let mut res = vec![];
         const COUNT: usize = circle().len() as usize;
 
         let score = |x, y| {
-            let t = 16i16;
+            let t = threshold as i16;
             // Eq 8 of rosten2006, LNCS3951.
             let base_v = image.get_pixel(x, y)[0];
             let mut sum_bright = 0;
@@ -227,11 +234,16 @@ pub mod fast_detector16 {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct FastConfig {
     /// Value to be exceeded.
     pub threshold: u8,
+
     /// Count of consecutive pixels
     pub count: u8,
+
+    /// Whether to use non maximal suprresion.
+    pub non_maximal_supression: bool,
 }
 
 pub fn detector(
@@ -246,11 +258,15 @@ pub fn detector(
     for y in 3..(height - 3) {
         for x in 3..(width - 3) {
             if let Some(p) =
-                fast_detector16::detect((x, y), img, config.threshold as u16 , config.count)
+                fast_detector16::detect((x, y), img, config.threshold, config.count)
             {
                 r.push(p);
             }
         }
+    }
+
+    if config.non_maximal_supression {
+        return fast_detector16::non_max_supression(img, &r, config.threshold);
     }
     r
 }
