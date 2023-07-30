@@ -8,6 +8,13 @@ The (non-max) fast_detector16::detect() here matches opencv for a count of 9.
 
 The reference non-max implementation can can have three keypoints adjecent on a single row.
 
+
+OpenCV's nonmax score function is threshold for which the point would still be a keypoint.
+    Which the paper states a lot of pixels will share the value.
+    And enabling VERIFY_CORNERS make the asserts fail.
+    So they use a score function the authors don't recommend, and the asserts fail if enabled.
+    Lets not dwell on the fact that our nonmax logic doesn't match opencvs.
+
 */
 
 #[derive(Copy, Debug, Clone, Eq, PartialEq)]
@@ -17,7 +24,7 @@ pub struct FastPoint {
 }
 
 pub mod fast_detector16 {
-    const DO_PRINTS: bool = false;
+    const DO_PRINTS: bool = true;
 
     macro_rules! trace {
         () => (if DO_PRINTS {println!("\n");});
@@ -80,8 +87,8 @@ pub mod fast_detector16 {
         // exists range n where all entries different than p - t.
 
         let base_v = image.get_pixel(x, y)[0];
-        trace!("{y}, {x}");
-        trace!("   {base_v} ");
+        // trace!("{y}, {x}");
+        // trace!("   {base_v} ");
 
         let delta_f = |index: usize| {
             let offset = point(index as u8);
@@ -109,7 +116,7 @@ pub mod fast_detector16 {
             pos[i] = d > 0 && a > t as i16;
         }
 
-        if DO_PRINTS {
+        if DO_PRINTS && false {
             for i in 0..COUNT {
                 print!("  {} ", delta_f(i));
             }
@@ -163,6 +170,8 @@ pub mod fast_detector16 {
             let base_v = image.get_pixel(x, y)[0];
             let mut sum_bright = 0;
             let mut sum_dark = 0;
+            // let mut c_bright = 0;
+            // let mut c_dark = 0;
             for i in 0..COUNT {
                 let offset = point(i as u8);
                 let t_x = (x as i32 + offset.0) as u32;
@@ -172,12 +181,15 @@ pub mod fast_detector16 {
 
                 if pixel_v >= (p + t) {
                     sum_bright += (pixel_v - p).abs() - t;
+                    // c_bright += 1;
                 }
                 if pixel_v <= (p - t) {
                     sum_dark += (p - pixel_v).abs() - t;
+                    // c_dark += 1;
                 }
 
             }
+             // / c_bright.max(c_dark)
             sum_bright.max(sum_dark)
         };
 
@@ -226,14 +238,7 @@ pub fn detector(
     img: &dyn GenericImageView<Pixel = Luma<u8>>,
     config: &FastConfig,
 ) -> Vec<FastPoint> {
-    // let luma_view = crate::util::Rgb8ToLuma16View::new(img);
     let (width, height) = img.dimensions();
-
-    for y in 3..(height - 3) {
-        for x in 3..(width - 3) {
-            println!("{x}, {y}, {}", img.get_pixel(x, y)[0]);
-        }
-    }
 
 
     let mut r = vec![];
