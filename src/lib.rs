@@ -30,7 +30,6 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
 
     let circle_image = fast::fast_detector16::make_circle_image();
     let _ = circle_image.save("/tmp/circle_image.png")?;
-    
 
     let duration = start.elapsed();
     println!("Time elapsed in expensive_function() is: {:?}", duration);

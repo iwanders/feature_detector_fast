@@ -40,7 +40,6 @@ pub mod fast_detector16 {
         }
     }
 
-
     use super::*;
 
     pub const NORTH: usize = 0;
@@ -91,7 +90,6 @@ pub mod fast_detector16 {
         let t = t as i16;
 
         let (width, height) = image.dimensions();
-
 
         let mut r = vec![];
 
@@ -174,7 +172,11 @@ pub mod fast_detector16 {
     }
 
     /// This is different from opencv, and VERY inefficient.
-    pub fn non_max_supression(image: &image::GrayImage,keypoints: &[FastPoint], threshold: u8) -> Vec<FastPoint> {
+    pub fn non_max_supression(
+        image: &image::GrayImage,
+        keypoints: &[FastPoint],
+        threshold: u8,
+    ) -> Vec<FastPoint> {
         // Very inefficient.
         let mut res = vec![];
         const COUNT: usize = circle().len() as usize;
@@ -202,12 +204,10 @@ pub mod fast_detector16 {
                     sum_dark += (p - pixel_v).abs() - t;
                     // c_dark += 1;
                 }
-
             }
-             // / c_bright.max(c_dark)
+            // / c_bright.max(c_dark)
             sum_bright.max(sum_dark)
         };
-
 
         'kpiter: for kp in keypoints.iter() {
             let current_score = score(kp.x, kp.y);
@@ -225,18 +225,17 @@ pub mod fast_detector16 {
                     // check if this keypoint exists.
                     let zx = (kp.x as i32 + dx) as u32;
                     let zy = (kp.y as i32 + dy) as u32;
-                    if !keypoints.contains(&FastPoint{x: zx, y: zy}) {
+                    if !keypoints.contains(&FastPoint { x: zx, y: zy }) {
                         continue;
                     }
 
-                    let other_score = score(zx , zy);
+                    let other_score = score(zx, zy);
                     if current_score <= other_score {
                         continue 'kpiter;
                     }
                 }
             }
             res.push(*kp);
-
         }
         res
     }
@@ -254,10 +253,7 @@ pub struct FastConfig {
     pub non_maximal_supression: bool,
 }
 
-pub fn detector(
-    img: &image::GrayImage,
-    config: &FastConfig,
-) -> Vec<FastPoint> {
+pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
     let mut r = fast_detector16::detect(img, config.threshold, config.count);
 
     if config.non_maximal_supression {
@@ -267,19 +263,19 @@ pub fn detector(
 }
 
 #[cfg(test)]
-mod test{
+mod test {
     #[test]
     fn test_consecutive() {
         fn test_consecutive(z: &[u8], consecutive: usize) -> bool {
-            for s in 0..z.len(){
-                if z
-                .iter()
-                .map(|v| *v != 0)
-                .cycle()
-                .skip(s)
-                .take_while(|t| *t)
-                .count()
-                >= consecutive as usize {
+            for s in 0..z.len() {
+                if z.iter()
+                    .map(|v| *v != 0)
+                    .cycle()
+                    .skip(s)
+                    .take_while(|t| *t)
+                    .count()
+                    >= consecutive as usize
+                {
                     return true;
                 }
             }
@@ -290,14 +286,19 @@ mod test{
 
         assert_eq!(test_consecutive(&[1, 0, 1, 1], 2), true);
 
-
         assert_eq!(test_consecutive(&[0, 1, 1, 1], 3), true);
         assert_eq!(test_consecutive(&[1, 0, 1, 1], 3), true);
         assert_eq!(test_consecutive(&[1, 1, 0, 1], 3), true);
         assert_eq!(test_consecutive(&[1, 1, 1, 0], 3), true);
 
-        assert_eq!(test_consecutive(&[1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], 3), false);
+        assert_eq!(
+            test_consecutive(&[1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], 3),
+            false
+        );
 
-        assert_eq!(test_consecutive(&[1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 1], 4), true);
+        assert_eq!(
+            test_consecutive(&[1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 1], 4),
+            true
+        );
     }
 }
