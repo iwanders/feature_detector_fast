@@ -98,31 +98,27 @@ pub mod fast_detector16 {
         let mut r = vec![];
 
         let data = image.as_raw();
-        // println!("Data: {data:?}");
+
+        // calculate the circle offsets for the data once.
+        let mut circle_offset = [0i32; 16];
+        for (i, (x, y)) in circle().iter().enumerate() {
+            circle_offset[i] = *y * width as i32 + *x;
+        }
         
 
         for y in 3..(height - 3) {
             for x in 3..(width - 3) {
+                let base_offset = (y * width + x) as i32;
 
-                let base_v = image.get_pixel(x, y)[0];
-                // let base_v = data[(y * width + x)as usize ];
-                // trace!("{y}, {x}");
-                // trace!("   {base_v} ");
+                let base_v = data[base_offset as usize];
 
                 let delta_f = |index: usize| {
-                    let offset = point(index as u8);
-                    let t_x = (x as i32 + offset.0) as u32;
-                    let t_y = (y as i32 + offset.1) as u32;
-                    let pixel_v = image.get_pixel(t_x, t_y)[0];
-
+                    let pixel_v = data[(base_offset + circle_offset[index]) as usize];
                     let delta = base_v as i16 - pixel_v as i16;
                     delta
                 };
                 let p_f = |index: usize| {
-                    let offset = point(index as u8);
-                    let t_x = (x as i32 + offset.0) as u32;
-                    let t_y = (y as i32 + offset.1) as u32;
-                    image.get_pixel(t_x, t_y)[0]
+                    data[(base_offset + circle_offset[index]) as usize]
                 };
 
                 const COUNT: usize = circle().len() as usize;
