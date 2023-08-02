@@ -15,6 +15,17 @@ use image::{GenericImageView, Luma};
 
 */
 
+/*
+
+     15 0 1
+   14       2
+ 13           3
+ 12    +      4
+ 11           5
+   10       6
+     9  8  7
+*/  
+
 #[cfg(all(any(target_arch = "x86_64"), target_feature = "avx2"))]
 pub mod fast_detector16 {
 
@@ -45,22 +56,30 @@ pub mod fast_detector16 {
 
     use super::*;
 
+    pub const NORTH: usize = 0;
+    pub const EAST: usize = 4;
+    pub const SOUTH: usize = 8;
+    pub const WEST: usize = 12;
+
     /// The circle with 16 pixels.
     pub const fn circle() -> [(i32, i32); 16] {
         [
             (0, -3),
-            (3, -0),
-            (0, 3),
-            (-3, -0),
             (1, -3),
             (2, -2),
             (3, -1),
+
+            (3, -0),
             (3, 1),
             (2, 2),
             (1, 3),
+
+            (0, 3),
             (-1, 3),
             (-2, 2),
             (-3, 1),
+
+            (-3, -0),
             (-3, -1),
             (-2, -2),
             (-1, -3),
@@ -100,6 +119,17 @@ pub mod fast_detector16 {
                 &circle_offset[0],
             ));
             for y in 3..(height - 3) {
+                // we should probably do something smarter than this.
+                //     15 0 1
+                //   14       2
+                // 13           3
+                // 12    +      4
+                // 11           5
+                //   10       6
+                //     9  8  7
+                // What about checking the entire row of 12-4 and and only for those where
+                // 12 and 4 indicate possible corner check anything off the row?
+                    
                 for x in 3..(width - 3) {
                     let base_offset = (y * width + x) as i32;
 
@@ -135,8 +165,9 @@ pub mod fast_detector16 {
                         std::mem::transmute::<_, *const i32>(&data[base_offset as usize]);
                     let obtained = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
 
+                    /*
                     // after the gather, we end up with
-                    // v0 0 0 0 v1 0 0 0 v2 0 0 0 v3 0 0 0 | v4 0 0 0...
+                    // v0 0 0 0 v1 0 0 0 v2 0 0 0 v3 0 0 0 | v4 0 0 0 v5 0 0 0 v6 0 0 0 v7
                     let mask = _mm256_set_epi64x(
                         0, // discarded anyway
                         // on zero'th byte, we want the 0 index, second byte, index 4, third; 8th...
@@ -153,15 +184,11 @@ pub mod fast_detector16 {
                     let mut retrievable = [0u8; 8];
                     retrievable[0..4].copy_from_slice(&lower.to_le_bytes());
                     retrievable[4..].copy_from_slice(&higher.to_le_bytes());
+                    */
                     
 
                     let delta_f = |index: usize| {
-                        let pixel_v = if index < 8  {
-                            // if (data[(base_offset + circle_offset[index]) as usize] != retrievable[index]) {
-                                // panic!();
-                            // }
-                            retrievable[index]
-                        } else { data[(base_offset + circle_offset[index]) as usize]};
+                        let pixel_v = data[(base_offset + circle_offset[index]) as usize];
                         let delta = base_v as i16 - pixel_v as i16;
                         delta
                     };
