@@ -1,4 +1,5 @@
 pub mod fast;
+pub mod fast_simd;
 pub mod util;
 
 use image;
@@ -18,7 +19,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let config = fast::FastConfig {
         threshold: 16,
         count: 9,
-        non_maximal_supression: true,
+        non_maximal_supression: false,
     };
 
     let mut r = vec![];
