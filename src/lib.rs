@@ -25,8 +25,8 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let mut r = vec![];
 
     let start = std::time::Instant::now();
-    let mut keypoints = fast::detector(&luma_view, &config);
-    // let mut keypoints = fast::detector12(&luma_view, &config);
+    let mut keypoints = fast_simd::detector(&luma_view, &config);
+    // let mut keypoints = fast::detector(&luma_view, &config);
 
     let circle_image = fast::fast_detector16::make_circle_image();
     let _ = circle_image.save("/tmp/circle_image.png")?;

@@ -87,7 +87,7 @@ pub mod fast_detector16 {
     }
 
     pub fn detect(
-        image: &dyn GenericImageView<Pixel = Luma<u8>>,
+        image: &image::GrayImage,
         t: u8,
         consecutive: u8,
     ) -> Vec<FastPoint> {
@@ -97,10 +97,15 @@ pub mod fast_detector16 {
         // exists range n where all entries different than p - t.
         let mut r = vec![];
 
+        let data = image.as_raw();
+        // println!("Data: {data:?}");
+        
+
         for y in 3..(height - 3) {
             for x in 3..(width - 3) {
 
                 let base_v = image.get_pixel(x, y)[0];
+                // let base_v = data[(y * width + x)as usize ];
                 // trace!("{y}, {x}");
                 // trace!("   {base_v} ");
 
@@ -177,7 +182,7 @@ pub mod fast_detector16 {
 
 }
 pub fn detector(
-    img: &dyn GenericImageView<Pixel = Luma<u8>>,
+    img: &image::GrayImage,
     config: &crate::fast::FastConfig,
 ) -> Vec<FastPoint> {
 

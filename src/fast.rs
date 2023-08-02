@@ -84,89 +84,97 @@ pub mod fast_detector16 {
     }
 
     pub fn detect(
-        (x, y): (u32, u32),
         image: &dyn GenericImageView<Pixel = Luma<u8>>,
         t: u8,
         consecutive: u8,
-    ) -> Option<FastPoint> {
+    ) -> Vec<FastPoint> {
         let t = t as i16;
-        // exists range n where all entries different than p - t.
 
-        let base_v = image.get_pixel(x, y)[0];
-        // trace!("{y}, {x}");
-        // trace!("   {base_v} ");
+        let (width, height) = image.dimensions();
 
-        let delta_f = |index: usize| {
-            let offset = point(index as u8);
-            let t_x = (x as i32 + offset.0) as u32;
-            let t_y = (y as i32 + offset.1) as u32;
-            let pixel_v = image.get_pixel(t_x, t_y)[0];
 
-            let delta = base_v as i16 - pixel_v as i16;
-            delta
-        };
-        let p_f = |index: usize| {
-            let offset = point(index as u8);
-            let t_x = (x as i32 + offset.0) as u32;
-            let t_y = (y as i32 + offset.1) as u32;
-            image.get_pixel(t_x, t_y)[0]
-        };
+        let mut r = vec![];
 
-        const COUNT: usize = circle().len() as usize;
-        let mut neg = [false; COUNT];
-        let mut pos = [false; COUNT];
-        for i in 0..COUNT {
-            let d = delta_f(i);
-            let a = d.abs();
-            neg[i] = d < 0 && a > t as i16;
-            pos[i] = d > 0 && a > t as i16;
-        }
+        for y in 3..(height - 3) {
+            for x in 3..(width - 3) {
+                // exists range n where all entries different than p - t.
 
-        if DO_PRINTS && false {
-            for i in 0..COUNT {
-                print!("  {} ", delta_f(i));
-            }
-            println!("  t: {t}");
-            for i in 0..COUNT {
-                print!("  {} ", p_f(i));
-            }
-            println!("  pixels");
-            println!("  neg: {neg:?}");
-            println!("  pos: {pos:?}");
-        }
+                let base_v = image.get_pixel(x, y)[0];
+                // trace!("{y}, {x}");
+                // trace!("   {base_v} ");
 
-        // There's probably a way more efficient way of doing this rotation.
-        for s in 0..COUNT {
-            let n = neg
-                .iter()
-                .cycle()
-                .skip(s)
-                .take(COUNT)
-                .take_while(|t| **t)
-                .count()
-                >= consecutive as usize;
-            let p = pos
-                .iter()
-                .cycle()
-                .skip(s)
-                .take(COUNT)
-                .take_while(|t| **t)
-                .count()
-                >= consecutive as usize;
+                let delta_f = |index: usize| {
+                    let offset = point(index as u8);
+                    let t_x = (x as i32 + offset.0) as u32;
+                    let t_y = (y as i32 + offset.1) as u32;
+                    let pixel_v = image.get_pixel(t_x, t_y)[0];
 
-            if n || p {
-                if DO_PRINTS {
-                    println!("  Succceed by p: {p}, n: {n} at s {s}");
+                    let delta = base_v as i16 - pixel_v as i16;
+                    delta
+                };
+                let p_f = |index: usize| {
+                    let offset = point(index as u8);
+                    let t_x = (x as i32 + offset.0) as u32;
+                    let t_y = (y as i32 + offset.1) as u32;
+                    image.get_pixel(t_x, t_y)[0]
+                };
+
+                const COUNT: usize = circle().len() as usize;
+                let mut neg = [false; COUNT];
+                let mut pos = [false; COUNT];
+                for i in 0..COUNT {
+                    let d = delta_f(i);
+                    let a = d.abs();
+                    neg[i] = d < 0 && a > t as i16;
+                    pos[i] = d > 0 && a > t as i16;
                 }
-                return Some(FastPoint { x, y });
+
+                if DO_PRINTS && false {
+                    for i in 0..COUNT {
+                        print!("  {} ", delta_f(i));
+                    }
+                    println!("  t: {t}");
+                    for i in 0..COUNT {
+                        print!("  {} ", p_f(i));
+                    }
+                    println!("  pixels");
+                    println!("  neg: {neg:?}");
+                    println!("  pos: {pos:?}");
+                }
+
+                // There's probably a way more efficient way of doing this rotation.
+                for s in 0..COUNT {
+                    let n = neg
+                        .iter()
+                        .cycle()
+                        .skip(s)
+                        .take(COUNT)
+                        .take_while(|t| **t)
+                        .count()
+                        >= consecutive as usize;
+                    let p = pos
+                        .iter()
+                        .cycle()
+                        .skip(s)
+                        .take(COUNT)
+                        .take_while(|t| **t)
+                        .count()
+                        >= consecutive as usize;
+
+                    if n || p {
+                        if DO_PRINTS {
+                            println!("  Succceed by p: {p}, n: {n} at s {s}");
+                        }
+                        r.push(FastPoint { x, y });
+                    }
+                }
             }
         }
-
-        None
+        r
     }
 
     /// This is different from opencv, and VERY inefficient.
-    pub fn non_max_supression(image: &dyn GenericImageView<Pixel = Luma<u8>>,keypoints: &[FastPoint], threshold: u8) -> Vec<FastPoint> {
+    pub fn non_max_supression(image: &image::GrayImage,keypoints: &[FastPoint], threshold: u8) -> Vec<FastPoint> {
         // Very inefficient.
         let mut res = vec![];
         const COUNT: usize = circle().len() as usize;
@@ -247,23 +255,10 @@ pub struct FastConfig {
 }
 
 pub fn detector(
-    img: &dyn GenericImageView<Pixel = Luma<u8>>,
+    img: &image::GrayImage,
     config: &FastConfig,
 ) -> Vec<FastPoint> {
-    let (width, height) = img.dimensions();
-
-
-    let mut r = vec![];
-
-    for y in 3..(height - 3) {
-        for x in 3..(width - 3) {
-            if let Some(p) =
-                fast_detector16::detect((x, y), img, config.threshold, config.count)
-            {
-                r.push(p);
-            }
-        }
-    }
+    let mut r = fast_detector16::detect(img, config.threshold, config.count);
 
     if config.non_maximal_supression {
         return fast_detector16::non_max_supression(img, &r, config.threshold);
