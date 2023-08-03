@@ -238,7 +238,7 @@ pub mod fast_detector16 {
                     let found3_lower = _mm_extract_epi64 (found_3, 1);
                     if (found3_upper == 0 && found3_lower == 0) {
                         trace!("Continue");
-                        // continue;
+                        continue;
                     }
 
                     for xx in x..(x+16) {

@@ -30,7 +30,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     if (keypoints_simd != keypoints ){
         println!("Keypoints not identical");
     }
-
+    keypoints = keypoints_simd;
     let circle_image = fast::fast_detector16::make_circle_image();
     let _ = circle_image.save("/tmp/circle_image.png")?;
 
