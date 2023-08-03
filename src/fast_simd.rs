@@ -129,6 +129,11 @@ pub mod fast_detector16 {
                 //     9  8  7
                 // What about checking the entire row of 12-4 and and only for those where
                 // 12 and 4 indicate possible corner check anything off the row?
+
+                // The fastest check is ensure 3 out of 4 of the cardinal directions
+                // north, east, south, west exceeds the threshold.
+                // If that is the case, and only then should we do real work.
+
                     
                 for x in 3..(width - 3) {
                     let base_offset = (y * width + x) as i32;
