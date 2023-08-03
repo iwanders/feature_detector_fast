@@ -42,7 +42,7 @@ pub mod fast_detector16 {
         format!("{:02X?}", v)
     }
 
-    const DO_PRINTS: bool = true;
+    const DO_PRINTS: bool = false;
 
     #[allow(unused_macros)]
     macro_rules! trace {
@@ -172,20 +172,33 @@ pub mod fast_detector16 {
 
                     // Now, we just need to determine if 3 out of 4 of the cardinal directions are above or below.
                     // These masks return 0xFF if true, x00 if false.
-                    let north_above = _mm_cmpgt_epi8(north, upper_bound);
-                    let east_above = _mm_cmpgt_epi8(east, upper_bound);
-                    let south_above = _mm_cmpgt_epi8(south, upper_bound);
-                    let west_above = _mm_cmpgt_epi8(west, upper_bound);
+                    // _mm_cmpgt_epi8: dst[i+7:i] := ( a[i+7:i] > b[i+7:i] ) ? 0xFF : 0
+                    // ah, this is a signed comparison...
+                    // https://stackoverflow.com/a/24234695
+                    /*
+                    _mm_cmpgt_epu8(a, b) = _mm_cmpgt_epi8(
+                        _mm_xor_epi8(a, _mm_set1_epi8(-128)),  // range-shift to unsigned
+                        _mm_xor_epi8(b, _mm_set1_epi8(-128)))
+                    */
+                    unsafe fn _mm_cmpgt_epu8(a: __m128i, b: __m128i) -> __m128i {
+                        _mm_cmpgt_epi8(
+                            _mm_xor_si128(a, _mm_set1_epi8(-128)),  // range-shift to unsigned
+                            _mm_xor_si128(b, _mm_set1_epi8(-128)))
+                    }
+                    let north_above = _mm_cmpgt_epu8(north, upper_bound);
+                    let east_above = _mm_cmpgt_epu8(east, upper_bound);
+                    let south_above = _mm_cmpgt_epu8(south, upper_bound);
+                    let west_above = _mm_cmpgt_epu8(west, upper_bound);
                     trace!("");
                     trace!("nt_ab: {}", pi(&north_above));
                     trace!("ea_ab: {}", pi(&east_above));
                     trace!("st_ab: {}", pi(&south_above));
                     trace!("we_ab: {}", pi(&west_above));
 
-                    let east_below = _mm_cmpgt_epi8(lower_bound, east);
-                    let south_below = _mm_cmpgt_epi8(lower_bound, south);
-                    let north_below = _mm_cmpgt_epi8(lower_bound, north);
-                    let west_below = _mm_cmpgt_epi8(lower_bound, west);
+                    let east_below = _mm_cmpgt_epu8(lower_bound, east);
+                    let south_below = _mm_cmpgt_epu8(lower_bound, south);
+                    let north_below = _mm_cmpgt_epu8(lower_bound, north);
+                    let west_below = _mm_cmpgt_epu8(lower_bound, west);
 
                     // Now, we need a way to determine 3 out of 4.
                     //          east && south && west
@@ -211,7 +224,7 @@ pub mod fast_detector16 {
                     let found3_upper = _mm_extract_epi64 (found_3, 0);
                     let found3_lower = _mm_extract_epi64 (found_3, 1);
                     if (found3_upper == 0 && found3_lower == 0) {
-                        // continue;
+                        continue;
                     }
 
                     let base_v = data[base_offset as usize];
