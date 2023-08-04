@@ -42,7 +42,7 @@ pub mod fast_detector16 {
         format!("{:02X?}", v)
     }
 
-    const DO_PRINTS: bool = false;
+    const DO_PRINTS: bool = true;
 
     #[allow(unused_macros)]
     macro_rules! trace {
@@ -237,7 +237,7 @@ pub mod fast_detector16 {
                     let found3_upper = _mm_extract_epi64 (found_3, 0);
                     let found3_lower = _mm_extract_epi64 (found_3, 1);
                     if (found3_upper == 0 && found3_lower == 0) {
-                        trace!("Continue");
+                        trace!("Continue for {y}, {x}");
                         continue;
                     }
 
@@ -351,6 +351,7 @@ pub mod fast_detector16 {
                                     println!("  Succceed by p: {p}, n: {n} at s {s}");
                                 }
                                 r.push(FastPoint { x:  xx, y });
+                                break;
                             }
                         }
                     }
@@ -470,6 +471,7 @@ pub mod fast_detector16 {
                                 // println!("  Succceed by p: {p}, n: {n} at s {s}");
                             }
                             r.push(FastPoint { x, y });
+                            break;
                         }
                     }
                 }
