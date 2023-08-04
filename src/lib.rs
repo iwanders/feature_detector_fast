@@ -25,8 +25,6 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         non_maximal_supression: false,
     };
 
-
-
     let start = std::time::Instant::now();
     let mut keypoints_simd = fast_simd::detector(&luma_view, &config);
     println!("simd is: {:?}", start.elapsed());
@@ -35,11 +33,10 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let mut keypoints = fast::detector(&luma_view, &config);
     println!("normal is: {:?}", start.elapsed());
 
-    if (keypoints_simd != keypoints ){
+    if (keypoints_simd != keypoints) {
         println!("Keypoints not identical");
     }
     // keypoints = keypoints_simd;
-
 
     // let keypoints = if kp.is_some() {vec![kp.unwrap()]} else {vec![]};
 

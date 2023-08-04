@@ -24,7 +24,7 @@ use image::{GenericImageView, Luma};
  11           5
    10       6
      9  8  7
-*/  
+*/
 
 #[cfg(all(any(target_arch = "x86_64"), target_feature = "avx2"))]
 pub mod fast_detector16 {
@@ -42,7 +42,7 @@ pub mod fast_detector16 {
         format!("{:02X?}", v)
     }
 
-    const DO_PRINTS: bool = true;
+    const DO_PRINTS: bool = false;
 
     #[allow(unused_macros)]
     macro_rules! trace {
@@ -68,17 +68,14 @@ pub mod fast_detector16 {
             (1, -3),
             (2, -2),
             (3, -1),
-
             (3, -0),
             (3, 1),
             (2, 2),
             (1, 3),
-
             (0, 3),
             (-1, 3),
             (-2, 2),
             (-3, 1),
-
             (-3, -0),
             (-3, -1),
             (-2, -2),
@@ -115,12 +112,12 @@ pub mod fast_detector16 {
         }
 
         unsafe {
-            let indices = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(
-                &circle_offset[0],
-            ));
+            let indices =
+                _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[0]));
 
             let m128_threshold = [t as u8; 16];
-            let m128_threshold = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_threshold[0]));
+            let m128_threshold =
+                _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_threshold[0]));
 
             for y in 3..(height - 3) {
                 // we should probably do something smarter than this.
@@ -141,9 +138,9 @@ pub mod fast_detector16 {
                 // for x in (3..(width - 16 - 3)).step_by(16) {
                 let x_chunks = (width - 3 - 3) / 16;
                 for x_step in 0..x_chunks {
-                // for x in (3..(width - 16 - 3)).step_by(16) {
+                    // for x in (3..(width - 16 - 3)).step_by(16) {
                     let x = 3 + x_step * 16;
-                    
+
                     trace!("\n\n");
                     // Ok, here we go.
                     // __m128i = 16 bytes;
@@ -151,25 +148,35 @@ pub mod fast_detector16 {
                     let base_offset = (y * width + x) as i32;
 
                     // Obtain 16 centers.
-                    let c = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&data[base_offset as usize]));
+                    let c = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(
+                        &data[base_offset as usize],
+                    ));
                     trace!("c    : {}", pi(&c));
                     trace!("t    : {}", pi(&m128_threshold));
 
                     // Obtain 16 of the cardinal directions.
-                    let north = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&data[(base_offset + circle_offset[NORTH]) as usize]));
-                    let east = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&data[(base_offset + circle_offset[EAST]) as usize]));
-                    let south = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&data[(base_offset + circle_offset[SOUTH]) as usize]));
-                    let west = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&data[(base_offset + circle_offset[WEST]) as usize]));
+                    let north = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(
+                        &data[(base_offset + circle_offset[NORTH]) as usize],
+                    ));
+                    let east = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(
+                        &data[(base_offset + circle_offset[EAST]) as usize],
+                    ));
+                    let south = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(
+                        &data[(base_offset + circle_offset[SOUTH]) as usize],
+                    ));
+                    let west = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(
+                        &data[(base_offset + circle_offset[WEST]) as usize],
+                    ));
                     trace!("");
                     trace!("north: {}", pi(&north));
                     trace!("east : {}", pi(&east));
                     trace!("south: {}", pi(&south));
                     trace!("west:  {}", pi(&west));
 
-                    // Ok, great, we have the data on hand, now for each byte, we can 
+                    // Ok, great, we have the data on hand, now for each byte, we can
                     // Now, we can calculate the lower and upper bounds.
-                    let upper_bound = _mm_adds_epi8 (c, m128_threshold);
-                    let lower_bound = _mm_subs_epi8 (c, m128_threshold);
+                    let upper_bound = _mm_adds_epi8(c, m128_threshold);
+                    let lower_bound = _mm_subs_epi8(c, m128_threshold);
                     trace!("");
                     trace!("upbnd: {}", pi(&upper_bound));
                     trace!("lrbnd: {}", pi(&lower_bound));
@@ -186,8 +193,9 @@ pub mod fast_detector16 {
                     */
                     unsafe fn _mm_cmpgt_epu8(a: __m128i, b: __m128i) -> __m128i {
                         _mm_cmpgt_epi8(
-                            _mm_xor_si128(a, _mm_set1_epi8(-128)),  // range-shift to unsigned
-                            _mm_xor_si128(b, _mm_set1_epi8(-128)))
+                            _mm_xor_si128(a, _mm_set1_epi8(-128)), // range-shift to unsigned
+                            _mm_xor_si128(b, _mm_set1_epi8(-128)),
+                        )
                     }
                     let north_above = _mm_cmpgt_epu8(north, upper_bound);
                     let east_above = _mm_cmpgt_epu8(east, upper_bound);
@@ -209,39 +217,56 @@ pub mod fast_detector16 {
                     trace!("st_bl: {}", pi(&south_below));
                     trace!("we_bl: {}", pi(&west_below));
 
-                    // Now, we need a way to determine 3 out of 4.
-                    //          east && south && west
-                    // north &&         south && west
-                    // north && east &&       && west
-                    // north && east && south &&
+                    // Now, we need a way to determine 2 out of 4.
+                    //               && south && west
+                    // north &&               && west
+                    // north && east &&       &&
+                    //       && east && south &&
+
+                    // north &&      && south &&
+                    //       && east &&       && west
 
                     // That has only four options, why not just write it out?
                     trace!("");
-                    let above_0 = _mm_and_si128(_mm_and_si128(east_above, south_above), west_above);
-                    let above_1 = _mm_and_si128(_mm_and_si128(north_above, south_above), west_above);
-                    let above_2 = _mm_and_si128(_mm_and_si128(north_above, east_above), west_above);
-                    let above_3 = _mm_and_si128(_mm_and_si128(north_above, east_above), south_above);
-                    let above_3_found = _mm_or_si128(_mm_or_si128(above_0, above_1), _mm_or_si128(above_2, above_3));
+                    let mut above_2_found = _mm_and_si128(south_above, west_above);
+                    let mut above_2_found =
+                        _mm_or_si128(above_2_found, _mm_and_si128(north_above, west_above));
+                    let mut above_2_found =
+                        _mm_or_si128(above_2_found, _mm_and_si128(north_above, east_above));
+                    let mut above_2_found =
+                        _mm_or_si128(above_2_found, _mm_and_si128(east_above, south_above));
+                    let mut above_2_found =
+                        _mm_or_si128(above_2_found, _mm_and_si128(north_above, south_above));
+                    let mut above_2_found =
+                        _mm_or_si128(above_2_found, _mm_and_si128(east_above, west_above));
+
+                    let above_3_found = above_2_found;
                     trace!("3 gtf: {}", pi(&above_3_found));
 
-
                     // And the same for below.
-                    let below_0 = _mm_and_si128(_mm_and_si128(east_below, south_below), west_below);
-                    let below_1 = _mm_and_si128(_mm_and_si128(north_below, south_below), west_below);
-                    let below_2 = _mm_and_si128(_mm_and_si128(north_below, east_below), west_below);
-                    let below_3 = _mm_and_si128(_mm_and_si128(north_below, east_below), south_below);
-                    let below_3_found = _mm_or_si128(_mm_or_si128(below_0, below_1), _mm_or_si128(below_2, below_3));
+                    let mut below_2_found = _mm_and_si128(south_below, west_below);
+                    let mut below_2_found =
+                        _mm_or_si128(below_2_found, _mm_and_si128(north_below, west_below));
+                    let mut below_2_found =
+                        _mm_or_si128(below_2_found, _mm_and_si128(north_below, east_below));
+                    let mut below_2_found =
+                        _mm_or_si128(below_2_found, _mm_and_si128(east_below, south_below));
+                    let mut below_2_found =
+                        _mm_or_si128(below_2_found, _mm_and_si128(north_below, south_below));
+                    let mut below_2_found =
+                        _mm_or_si128(below_2_found, _mm_and_si128(east_below, west_below));
+                    let below_3_found = below_2_found;
                     trace!("3 ltf: {}", pi(&below_3_found));
 
                     let found_3 = _mm_or_si128(above_3_found, below_3_found);
-                    let found3_upper = _mm_extract_epi64 (found_3, 0);
-                    let found3_lower = _mm_extract_epi64 (found_3, 1);
+                    let found3_upper = _mm_extract_epi64(found_3, 0);
+                    let found3_lower = _mm_extract_epi64(found_3, 1);
                     if (found3_upper == 0 && found3_lower == 0) {
                         trace!("Continue for {y}, {x}");
                         continue;
                     }
 
-                    for xx in x..(x+16) {
+                    for xx in x..(x + 16) {
                         let base_offset = (y * width + xx) as i32;
                         let base_v = data[base_offset as usize];
 
@@ -295,14 +320,14 @@ pub mod fast_detector16 {
                         retrievable[0..4].copy_from_slice(&lower.to_le_bytes());
                         retrievable[4..].copy_from_slice(&higher.to_le_bytes());
                         */
-                        
 
                         let delta_f = |index: usize| {
                             let pixel_v = data[(base_offset + circle_offset[index]) as usize];
                             let delta = base_v as i16 - pixel_v as i16;
                             delta
                         };
-                        let p_f = |index: usize| data[(base_offset + circle_offset[index]) as usize];
+                        let p_f =
+                            |index: usize| data[(base_offset + circle_offset[index]) as usize];
 
                         const COUNT: usize = circle().len() as usize;
                         let mut neg = [false; COUNT];
@@ -350,7 +375,7 @@ pub mod fast_detector16 {
                                 if DO_PRINTS {
                                     println!("  Succceed by p: {p}, n: {n} at s {s}");
                                 }
-                                r.push(FastPoint { x:  xx, y });
+                                r.push(FastPoint { x: xx, y });
                                 break;
                             }
                         }
@@ -358,9 +383,9 @@ pub mod fast_detector16 {
                 }
                 // for i in (input.len() / c) * c..input.len()
                 for x_step in ((width - 3 - 3) / 16) * 16..(width - 3 - 3) {
-                // for x in (width - 16 - 3)..(width -3){  
+                    // for x in (width - 16 - 3)..(width -3){
                     let x = x_step + 3;
-                    
+
                     let base_offset = (y * width + x) as i32;
 
                     let base_v = data[base_offset as usize];
@@ -415,7 +440,6 @@ pub mod fast_detector16 {
                     retrievable[0..4].copy_from_slice(&lower.to_le_bytes());
                     retrievable[4..].copy_from_slice(&higher.to_le_bytes());
                     */
-                    
 
                     let delta_f = |index: usize| {
                         let pixel_v = data[(base_offset + circle_offset[index]) as usize];
@@ -475,7 +499,6 @@ pub mod fast_detector16 {
                         }
                     }
                 }
-
             }
         }
         r
