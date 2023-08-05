@@ -16,7 +16,6 @@ use image::{GenericImageView, Luma};
 */
 
 /*
-
      15 0 1
    14       2
  13           3
@@ -24,80 +23,6 @@ use image::{GenericImageView, Luma};
  11           5
    10       6
      9  8  7
-From normal:
-
-47, 115
-   17
-  -20   -20   -22   -22   -20   -25   -26   1   3   4   2   1   2   -21   -20   -21   t: 16
-  37   37   39   39   37   42   43   16   14   13   15   16   15   38   37   38   pixels
-  neg: [true, true, true, true, true, true, true, false, false, false, false, false, false, true, true, true]
-  pos: [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false]
-  Succceed by p: false, n: true at s 13
-normal is: 7.163821ms
-Keypoints not identical
-
-37 is north
-37 is east
-14 is south
-15 is west
-
-center is 17
-t = 16
-
-only 37 and 37 exceed center + t.
-
-Darker?
-north: 37 <= (17 - 16): False
-east:  37 <= (17 - 16): False
-south: 14 <= (17 - 16): False
-west: 15 <= (17 - 16): False
-
-Lighter:
-north: (17 + 16) <= 37: True
-east: (17 + 16) <= 37: True
-south: (17 + 16) <= 14: False
-west: (17 + 16) <= 15: False
-
-This should not be a point. Yet OpenCV classifies it as a point.
-
-Definition of the paper is, let a cirle point be p and center of the circle c.
-    darker: p <= c - t
-    similar: c - t < p < c + t
-    brigher: c + t <= p
-
-
-c    : [11, 11, 2B, 25, 27, 28, 29, 2A, 28, 27, 27, 28, 28, 27, 27, 2B]
-t    : [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
-
-north: [25, 25, 29, 27, 28, 27, 28, 2A, 2B, 2A, 29, 27, 28, 28, 26, 25]
-east : [25, 27, 28, 29, 2A, 28, 27, 27, 28, 28, 27, 27, 2B, 2B, 2A, 2B]
-south: [0E, 10, 29, 29, 27, 2A, 27, 29, 2A, 29, 2B, 2B, 2A, 2F, 2C, 2B]
-west:  [0F, 0E, 0F, 11, 11, 2B, 25, 27, 28, 29, 2A, 28, 27, 27, 28, 28]
-
-upbnd: [21, 21, 3B, 35, 37, 38, 39, 3A, 38, 37, 37, 38, 38, 37, 37, 3B]
-lrbnd: [01, 01, 1B, 15, 17, 18, 19, 1A, 18, 17, 17, 18, 18, 17, 17, 1B]
-
-nt_ab: [FF, FF, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
-ea_ab: [FF, FF, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
-st_ab: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
-we_ab: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
-
-nt_bl: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
-ea_bl: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
-st_bl: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
-we_bl: [00, 00, FF, FF, FF, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
-
-3 gtf: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
-3 ltf: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
-Continue for 47, 115
-
-north: 0x25 = 37
-east: 0x25 = 37
-south: 0x0e = 14
-west: 0x0f: 15
-
-c = 0x11 = 17
-
 */
 
 #[cfg(all(any(target_arch = "x86_64"), target_feature = "avx2"))]
@@ -170,6 +95,134 @@ pub mod fast_detector16 {
         image
     }
 
+    pub type CircleOffsets = [i32; 16];
+    pub fn calculate_offsets(width: u32) -> CircleOffsets {
+        let mut circle_offset = [0i32; 16];
+        for (i, (x, y)) in circle().iter().enumerate() {
+            circle_offset[i] = *y * width as i32 + *x;
+        }
+        circle_offset
+    }
+
+    unsafe fn determine_keypoint(data: &[u8], circle_offset: &CircleOffsets, width: u32, p: (u32, u32), t: u8, consecutive: u8) -> Option<FastPoint> {
+            let indices =
+                _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[0]));
+        let y = p.1;
+        let xx = p.0;
+        let base_offset = (y * width + xx) as i32;
+        let base_v = data[base_offset as usize];
+
+        // pub unsafe fn _mm_loadu_si64(mem_addr: *const u8) -> __m128i
+
+        // Perform a single gather to obtain the first 8 indices.
+        // core::arch::x86_64::_mm256_i32gather_epi32
+        // Gather 32-bit integers from memory using 32-bit indices. 32-bit elements are
+        // loaded from addresses starting at base_addr and offset by each 32-bit element in
+        // vindex (each index is scaled by the factor in scale).
+        // Gathered elements are merged into dst. scale should be 1, 2, 4 or 8.
+
+        // We have pixels that are offset by one, so our scale is one.
+        //
+        // std::arch::x86_64::_mm256_i32gather_epi32(lookup_base, unpacked_in_32, SCALE);
+        /*
+            result[31:0] = mem[base+vindex[31:0]*scale];
+            result[63:32] = mem[base+vindex[63:32]*scale];
+            result[95:64] = mem[base+vindex[95:64]*scale];
+            result127:96] = mem[base+vindex[127:96]*scale];
+
+            result[159:128] = mem[base+vindex[159:128]*scale];
+            result[191:160] = mem[base+vindex[191:160]*scale];
+            result[223:192] = mem[base+vindex[223:192]*scale];
+            result[255:224] = mem[base+vindex[255:224]*scale];
+        */
+        // vindex is already inside circle_offset, so we can perform one fell swoop to land
+        // us the first 8 indices.
+        const SCALE: i32 = 1;
+        let lookup_base =
+            std::mem::transmute::<_, *const i32>(&data[base_offset as usize]);
+        let obtained = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
+
+        /*
+        // after the gather, we end up with
+        // v0 0 0 0 v1 0 0 0 v2 0 0 0 v3 0 0 0 | v4 0 0 0 v5 0 0 0 v6 0 0 0 v7
+        let mask = _mm256_set_epi64x(
+            0, // discarded anyway
+            // on zero'th byte, we want the 0 index, second byte, index 4, third; 8th...
+            0x0c080400, 0, // discarded anyway
+            0x0c080400,
+        );
+        // we do this magic shuffle back to collapse that into
+        let left_u32_per_lane = _mm256_shuffle_epi8(obtained, mask);
+        // v0 v1 v2 v3 0000000 | v4 v5 v6 v7
+        let lower = _mm256_extract_epi32(left_u32_per_lane, 0);
+        let higher = _mm256_extract_epi32(left_u32_per_lane, 4);
+
+        // Finally, we can store that into a single array for indexing later.
+        let mut retrievable = [0u8; 8];
+        retrievable[0..4].copy_from_slice(&lower.to_le_bytes());
+        retrievable[4..].copy_from_slice(&higher.to_le_bytes());
+        */
+
+        let delta_f = |index: usize| {
+            let pixel_v = data[(base_offset + circle_offset[index]) as usize];
+            let delta = base_v as i16 - pixel_v as i16;
+            delta
+        };
+        let p_f =
+            |index: usize| data[(base_offset + circle_offset[index]) as usize];
+
+        const COUNT: usize = circle().len() as usize;
+        let mut neg = [false; COUNT];
+        let mut pos = [false; COUNT];
+        for i in 0..COUNT {
+            let d = delta_f(i);
+            let a = d.abs();
+            neg[i] = d < 0 && a > t as i16;
+            pos[i] = d > 0 && a > t as i16;
+        }
+
+        if DO_PRINTS && false {
+            for i in 0..COUNT {
+                print!("  {} ", delta_f(i));
+            }
+            println!("  t: {t}");
+            for i in 0..COUNT {
+                print!("  {} ", p_f(i));
+            }
+            println!("  pixels");
+            println!("  neg: {neg:?}");
+            println!("  pos: {pos:?}");
+        }
+
+        // There's probably a way more efficient way of doing this rotation.
+        for s in 0..COUNT {
+            let n = neg
+                .iter()
+                .cycle()
+                .skip(s)
+                .take(COUNT)
+                .take_while(|t| **t)
+                .count()
+                >= consecutive as usize;
+            let p = pos
+                .iter()
+                .cycle()
+                .skip(s)
+                .take(COUNT)
+                .take_while(|t| **t)
+                .count()
+                >= consecutive as usize;
+
+            if n || p {
+                if DO_PRINTS {
+                    println!("  Succceed by p: {p}, n: {n} at s {s}");
+                }
+                return Some(FastPoint { x: xx, y });
+            }
+        }
+        None
+    }
+
     pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint> {
         let height = image.height();
         let width = image.width();
@@ -180,10 +233,7 @@ pub mod fast_detector16 {
         let data = image.as_raw();
 
         // calculate the circle offsets for the data once.
-        let mut circle_offset = [0i32; 16];
-        for (i, (x, y)) in circle().iter().enumerate() {
-            circle_offset[i] = *y * width as i32 + *x;
-        }
+        let mut circle_offset = calculate_offsets(width);
 
         unsafe {
             let indices =
@@ -209,10 +259,8 @@ pub mod fast_detector16 {
                 // north, east, south, west exceeds the threshold.
                 // If that is the case, and only then should we do real work.
 
-                // for x in (3..(width - 16 - 3)).step_by(16) {
                 let x_chunks = (width - 3 - 3) / 16;
                 for x_step in 0..x_chunks {
-                    // for x in (3..(width - 16 - 3)).step_by(16) {
                     let x = 3 + x_step * 16;
 
                     trace!("\n\n");
@@ -337,117 +385,8 @@ pub mod fast_detector16 {
                         if ((combined & (0xFFu128 << (xx - x))) == 0) {
                             continue;
                         }
-                        let base_offset = (y * width + xx) as i32;
-                        let base_v = data[base_offset as usize];
-
-                        // pub unsafe fn _mm_loadu_si64(mem_addr: *const u8) -> __m128i
-
-                        // Perform a single gather to obtain the first 8 indices.
-                        // core::arch::x86_64::_mm256_i32gather_epi32
-                        // Gather 32-bit integers from memory using 32-bit indices. 32-bit elements are
-                        // loaded from addresses starting at base_addr and offset by each 32-bit element in
-                        // vindex (each index is scaled by the factor in scale).
-                        // Gathered elements are merged into dst. scale should be 1, 2, 4 or 8.
-
-                        // We have pixels that are offset by one, so our scale is one.
-                        //
-                        // std::arch::x86_64::_mm256_i32gather_epi32(lookup_base, unpacked_in_32, SCALE);
-                        /*
-                            result[31:0] = mem[base+vindex[31:0]*scale];
-                            result[63:32] = mem[base+vindex[63:32]*scale];
-                            result[95:64] = mem[base+vindex[95:64]*scale];
-                            result127:96] = mem[base+vindex[127:96]*scale];
-
-                            result[159:128] = mem[base+vindex[159:128]*scale];
-                            result[191:160] = mem[base+vindex[191:160]*scale];
-                            result[223:192] = mem[base+vindex[223:192]*scale];
-                            result[255:224] = mem[base+vindex[255:224]*scale];
-                        */
-                        // vindex is already inside circle_offset, so we can perform one fell swoop to land
-                        // us the first 8 indices.
-                        const SCALE: i32 = 1;
-                        let lookup_base =
-                            std::mem::transmute::<_, *const i32>(&data[base_offset as usize]);
-                        let obtained = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
-
-                        /*
-                        // after the gather, we end up with
-                        // v0 0 0 0 v1 0 0 0 v2 0 0 0 v3 0 0 0 | v4 0 0 0 v5 0 0 0 v6 0 0 0 v7
-                        let mask = _mm256_set_epi64x(
-                            0, // discarded anyway
-                            // on zero'th byte, we want the 0 index, second byte, index 4, third; 8th...
-                            0x0c080400, 0, // discarded anyway
-                            0x0c080400,
-                        );
-                        // we do this magic shuffle back to collapse that into
-                        let left_u32_per_lane = _mm256_shuffle_epi8(obtained, mask);
-                        // v0 v1 v2 v3 0000000 | v4 v5 v6 v7
-                        let lower = _mm256_extract_epi32(left_u32_per_lane, 0);
-                        let higher = _mm256_extract_epi32(left_u32_per_lane, 4);
-
-                        // Finally, we can store that into a single array for indexing later.
-                        let mut retrievable = [0u8; 8];
-                        retrievable[0..4].copy_from_slice(&lower.to_le_bytes());
-                        retrievable[4..].copy_from_slice(&higher.to_le_bytes());
-                        */
-
-                        let delta_f = |index: usize| {
-                            let pixel_v = data[(base_offset + circle_offset[index]) as usize];
-                            let delta = base_v as i16 - pixel_v as i16;
-                            delta
-                        };
-                        let p_f =
-                            |index: usize| data[(base_offset + circle_offset[index]) as usize];
-
-                        const COUNT: usize = circle().len() as usize;
-                        let mut neg = [false; COUNT];
-                        let mut pos = [false; COUNT];
-                        for i in 0..COUNT {
-                            let d = delta_f(i);
-                            let a = d.abs();
-                            neg[i] = d < 0 && a > t as i16;
-                            pos[i] = d > 0 && a > t as i16;
-                        }
-
-                        if DO_PRINTS && false {
-                            for i in 0..COUNT {
-                                print!("  {} ", delta_f(i));
-                            }
-                            println!("  t: {t}");
-                            for i in 0..COUNT {
-                                print!("  {} ", p_f(i));
-                            }
-                            println!("  pixels");
-                            println!("  neg: {neg:?}");
-                            println!("  pos: {pos:?}");
-                        }
-
-                        // There's probably a way more efficient way of doing this rotation.
-                        for s in 0..COUNT {
-                            let n = neg
-                                .iter()
-                                .cycle()
-                                .skip(s)
-                                .take(COUNT)
-                                .take_while(|t| **t)
-                                .count()
-                                >= consecutive as usize;
-                            let p = pos
-                                .iter()
-                                .cycle()
-                                .skip(s)
-                                .take(COUNT)
-                                .take_while(|t| **t)
-                                .count()
-                                >= consecutive as usize;
-
-                            if n || p {
-                                if DO_PRINTS {
-                                    println!("  Succceed by p: {p}, n: {n} at s {s}");
-                                }
-                                r.push(FastPoint { x: xx, y });
-                                break;
-                            }
+                        if let Some(keypoint) = determine_keypoint(data, &circle_offset, width, (xx, y), t as u8, consecutive) {
+                            r.push(keypoint);
                         }
                     }
                 }
@@ -455,118 +394,8 @@ pub mod fast_detector16 {
                 for x_step in ((width - 3 - 3) / 16) * 16..(width - 3 - 3) {
                     // for x in (width - 16 - 3)..(width -3){
                     let x = x_step + 3;
-
-                    let base_offset = (y * width + x) as i32;
-
-                    let base_v = data[base_offset as usize];
-
-                    // pub unsafe fn _mm_loadu_si64(mem_addr: *const u8) -> __m128i
-
-                    // Perform a single gather to obtain the first 8 indices.
-                    // core::arch::x86_64::_mm256_i32gather_epi32
-                    // Gather 32-bit integers from memory using 32-bit indices. 32-bit elements are
-                    // loaded from addresses starting at base_addr and offset by each 32-bit element in
-                    // vindex (each index is scaled by the factor in scale).
-                    // Gathered elements are merged into dst. scale should be 1, 2, 4 or 8.
-
-                    // We have pixels that are offset by one, so our scale is one.
-                    //
-                    // std::arch::x86_64::_mm256_i32gather_epi32(lookup_base, unpacked_in_32, SCALE);
-                    /*
-                        result[31:0] = mem[base+vindex[31:0]*scale];
-                        result[63:32] = mem[base+vindex[63:32]*scale];
-                        result[95:64] = mem[base+vindex[95:64]*scale];
-                        result127:96] = mem[base+vindex[127:96]*scale];
-
-                        result[159:128] = mem[base+vindex[159:128]*scale];
-                        result[191:160] = mem[base+vindex[191:160]*scale];
-                        result[223:192] = mem[base+vindex[223:192]*scale];
-                        result[255:224] = mem[base+vindex[255:224]*scale];
-                    */
-                    // vindex is already inside circle_offset, so we can perform one fell swoop to land
-                    // us the first 8 indices.
-                    const SCALE: i32 = 1;
-                    let lookup_base =
-                        std::mem::transmute::<_, *const i32>(&data[base_offset as usize]);
-                    let obtained = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
-
-                    /*
-                    // after the gather, we end up with
-                    // v0 0 0 0 v1 0 0 0 v2 0 0 0 v3 0 0 0 | v4 0 0 0 v5 0 0 0 v6 0 0 0 v7
-                    let mask = _mm256_set_epi64x(
-                        0, // discarded anyway
-                        // on zero'th byte, we want the 0 index, second byte, index 4, third; 8th...
-                        0x0c080400, 0, // discarded anyway
-                        0x0c080400,
-                    );
-                    // we do this magic shuffle back to collapse that into
-                    let left_u32_per_lane = _mm256_shuffle_epi8(obtained, mask);
-                    // v0 v1 v2 v3 0000000 | v4 v5 v6 v7
-                    let lower = _mm256_extract_epi32(left_u32_per_lane, 0);
-                    let higher = _mm256_extract_epi32(left_u32_per_lane, 4);
-
-                    // Finally, we can store that into a single array for indexing later.
-                    let mut retrievable = [0u8; 8];
-                    retrievable[0..4].copy_from_slice(&lower.to_le_bytes());
-                    retrievable[4..].copy_from_slice(&higher.to_le_bytes());
-                    */
-
-                    let delta_f = |index: usize| {
-                        let pixel_v = data[(base_offset + circle_offset[index]) as usize];
-                        let delta = base_v as i16 - pixel_v as i16;
-                        delta
-                    };
-                    let p_f = |index: usize| data[(base_offset + circle_offset[index]) as usize];
-
-                    const COUNT: usize = circle().len() as usize;
-                    let mut neg = [false; COUNT];
-                    let mut pos = [false; COUNT];
-                    for i in 0..COUNT {
-                        let d = delta_f(i);
-                        let a = d.abs();
-                        neg[i] = d < 0 && a > t as i16;
-                        pos[i] = d > 0 && a > t as i16;
-                    }
-
-                    if DO_PRINTS && false {
-                        for i in 0..COUNT {
-                            print!("  {} ", delta_f(i));
-                        }
-                        println!("  t: {t}");
-                        for i in 0..COUNT {
-                            print!("  {} ", p_f(i));
-                        }
-                        println!("  pixels");
-                        println!("  neg: {neg:?}");
-                        println!("  pos: {pos:?}");
-                    }
-
-                    // There's probably a way more efficient way of doing this rotation.
-                    for s in 0..COUNT {
-                        let n = neg
-                            .iter()
-                            .cycle()
-                            .skip(s)
-                            .take(COUNT)
-                            .take_while(|t| **t)
-                            .count()
-                            >= consecutive as usize;
-                        let p = pos
-                            .iter()
-                            .cycle()
-                            .skip(s)
-                            .take(COUNT)
-                            .take_while(|t| **t)
-                            .count()
-                            >= consecutive as usize;
-
-                        if n || p {
-                            if DO_PRINTS {
-                                // println!("  Succceed by p: {p}, n: {n} at s {s}");
-                            }
-                            r.push(FastPoint { x, y });
-                            break;
-                        }
+                    if let Some(keypoint) = determine_keypoint(data, &circle_offset, width, (x, y), t as u8, consecutive) {
+                        r.push(keypoint);
                     }
                 }
             }
