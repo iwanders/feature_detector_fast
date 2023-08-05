@@ -24,6 +24,80 @@ use image::{GenericImageView, Luma};
  11           5
    10       6
      9  8  7
+From normal:
+
+47, 115
+   17 
+  -20   -20   -22   -22   -20   -25   -26   1   3   4   2   1   2   -21   -20   -21   t: 16
+  37   37   39   39   37   42   43   16   14   13   15   16   15   38   37   38   pixels
+  neg: [true, true, true, true, true, true, true, false, false, false, false, false, false, true, true, true]
+  pos: [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false]
+  Succceed by p: false, n: true at s 13
+normal is: 7.163821ms
+Keypoints not identical
+
+37 is north
+37 is east
+14 is south
+15 is west
+
+center is 17
+t = 16
+
+only 37 and 37 exceed center + t.
+
+Darker?
+north: 37 <= (17 - 16): False
+east:  37 <= (17 - 16): False
+south: 14 <= (17 - 16): False  
+west: 15 <= (17 - 16): False  
+
+Lighter:
+north: (17 + 16) <= 37: True
+east: (17 + 16) <= 37: True
+south: (17 + 16) <= 14: False
+west: (17 + 16) <= 15: False
+
+This should not be a point. Yet OpenCV classifies it as a point.
+
+Definition of the paper is, let a cirle point be p and center of the circle c.
+    darker: p <= c - t
+    similar: c - t < p < c + t
+    brigher: c + t <= p
+
+
+c    : [11, 11, 2B, 25, 27, 28, 29, 2A, 28, 27, 27, 28, 28, 27, 27, 2B]
+t    : [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
+
+north: [25, 25, 29, 27, 28, 27, 28, 2A, 2B, 2A, 29, 27, 28, 28, 26, 25]
+east : [25, 27, 28, 29, 2A, 28, 27, 27, 28, 28, 27, 27, 2B, 2B, 2A, 2B]
+south: [0E, 10, 29, 29, 27, 2A, 27, 29, 2A, 29, 2B, 2B, 2A, 2F, 2C, 2B]
+west:  [0F, 0E, 0F, 11, 11, 2B, 25, 27, 28, 29, 2A, 28, 27, 27, 28, 28]
+
+upbnd: [21, 21, 3B, 35, 37, 38, 39, 3A, 38, 37, 37, 38, 38, 37, 37, 3B]
+lrbnd: [01, 01, 1B, 15, 17, 18, 19, 1A, 18, 17, 17, 18, 18, 17, 17, 1B]
+
+nt_ab: [FF, FF, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+ea_ab: [FF, FF, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+st_ab: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+we_ab: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+
+nt_bl: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+ea_bl: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+st_bl: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+we_bl: [00, 00, FF, FF, FF, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+
+3 gtf: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+3 ltf: [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+Continue for 47, 115
+
+north: 0x25 = 37
+east: 0x25 = 37
+south: 0x0e = 14
+west: 0x0f: 15
+
+c = 0x11 = 17
+
 */  
 
 #[cfg(all(any(target_arch = "x86_64"), target_feature = "avx2"))]
