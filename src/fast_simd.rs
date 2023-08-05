@@ -618,10 +618,15 @@ mod test {
             false
         );
         /*
-            center is 17
+            Definition of the paper is, let a cirle point be p and center of the circle c.
+                darker: p <= c - t
+                similar: c - t < p < c + t
+                brigher: c + t <= p
+
+            center = 17
             t = 16
 
-            only 37 and 37 exceed center + t.
+            only 37 and 37 exceed center + t;
 
             Darker?
             north: 37 <= (17 - 16): False
@@ -635,12 +640,10 @@ mod test {
             south: (17 + 16) <= 14: False
             west: (17 + 16) <= 15: False
 
-            This should not be a point. Yet OpenCV classifies it as a point.
+            Only 2/4 cardinal points match the requirements, as such, with a minimum of 9 points
+            this point cannot possibly be a keypoint.
 
-            Definition of the paper is, let a cirle point be p and center of the circle c.
-                darker: p <= c - t
-                similar: c - t < p < c + t
-                brigher: c + t <= p
+            This should not be a point. Yet OpenCV classifies it as a point.
         */
     }
 }
