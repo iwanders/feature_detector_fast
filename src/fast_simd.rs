@@ -41,7 +41,7 @@ pub mod fast_detector16 {
         format!("{:02X?}", v)
     }
 
-    const DO_PRINTS: bool = false;
+    const DO_PRINTS: bool = true;
 
     #[allow(unused_macros)]
     macro_rules! trace {
@@ -103,13 +103,34 @@ pub mod fast_detector16 {
         }
         circle_offset
     }
+    // ah, this is a signed comparison...
+    // https://stackoverflow.com/a/24234695
+    /*
+    _mm_cmpgt_epu8(a, b) = _mm_cmpgt_epi8(
+        _mm_xor_epi8(a, _mm_set1_epi8(-128)),  // range-shift to unsigned
+        _mm_xor_epi8(b, _mm_set1_epi8(-128)))
+    */
+    unsafe fn _mm_cmpgt_epu8(a: __m128i, b: __m128i) -> __m128i {
+        _mm_cmpgt_epi8(
+            _mm_xor_si128(a, _mm_set1_epi8(-128)), // range-shift to unsigned
+            _mm_xor_si128(b, _mm_set1_epi8(-128)),
+        )
+    }
 
-    unsafe fn determine_keypoint(data: &[u8], circle_offset: &CircleOffsets, width: u32, p: (u32, u32), t: u8, consecutive: u8) -> Option<FastPoint> {
+    #[inline]
+    pub unsafe fn determine_keypoint(data: &[u8], circle_offset: &CircleOffsets, width: u32, p: (u32, u32), t: u8, consecutive: u8) -> Option<FastPoint> {
+        trace!("\n\nDetermine keypoint at {p:?}");
         let indices = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[0]));
+        let m128_threshold = [t as u8; 16];
+        let m128_threshold =
+            _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_threshold[0]));
+
         let xx = p.0;
         let y = p.1;
         let base_offset = (y * width + xx) as i32;
         let base_v = data[base_offset as usize];
+        let m128_center = [base_v as u8; 16];
+        let m128_center = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_center[0]));
 
         // pub unsafe fn _mm_loadu_si64(mem_addr: *const u8) -> __m128i
 
@@ -174,8 +195,36 @@ pub mod fast_detector16 {
         retrievable[12..16].copy_from_slice(&higher.to_le_bytes());
 
         // Retrievable is correct, confirmed that with some prints.
+        trace!("Values dec  {retrievable:?}");
 
+        // Definition of the paper is, let a cirle point be p and center of the circle c.
+            // darker: p <= c - t
+            // similar: c - t < p < c + t
+            // brigher: c + t <= p
 
+        // Load the circle's points.
+        let p = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&retrievable[0]));
+        trace!("Values hex  {}", pi(&p));
+
+        // Now, we can calculate the lower and upper bounds.
+        let upper_bound = _mm_adds_epi8(m128_center, m128_threshold);
+        let lower_bound = _mm_subs_epi8(m128_center, m128_threshold);
+        trace!("upper_bound {}", pi(&upper_bound));
+        trace!("lower_bound {}", pi(&lower_bound));
+
+        let is_above = _mm_cmpgt_epu8(p, upper_bound);
+        let is_below = _mm_cmpgt_epu8(lower_bound, p);
+        trace!("is_above    {}", pi(&is_above));
+        trace!("is_below    {}", pi(&is_below));
+
+        // void _mm256_storeu_si256 (__m256i * mem_addr, __m256i a)
+        let mut above_u8 = [0u8; 16];
+        _mm_storeu_si128(std::mem::transmute::<_, *mut __m128i>(&above_u8[0]), is_above);
+        let mut below_u8 = [0u8; 16];
+        _mm_storeu_si128(std::mem::transmute::<_, *mut __m128i>(&below_u8[0]), is_below);
+        trace!("above_u8    {above_u8:?}");
+        trace!("below_u8    {below_u8:?}");
+   
         let delta_f = |index: usize| {
             let pixel_v = data[(base_offset + circle_offset[index]) as usize];
             let delta = base_v as i16 - pixel_v as i16;
@@ -319,19 +368,7 @@ pub mod fast_detector16 {
                     // Now, we just need to determine if 3 out of 4 of the cardinal directions are above or below.
                     // These masks return 0xFF if true, x00 if false.
                     // _mm_cmpgt_epi8: dst[i+7:i] := ( a[i+7:i] > b[i+7:i] ) ? 0xFF : 0
-                    // ah, this is a signed comparison...
-                    // https://stackoverflow.com/a/24234695
-                    /*
-                    _mm_cmpgt_epu8(a, b) = _mm_cmpgt_epi8(
-                        _mm_xor_epi8(a, _mm_set1_epi8(-128)),  // range-shift to unsigned
-                        _mm_xor_epi8(b, _mm_set1_epi8(-128)))
-                    */
-                    unsafe fn _mm_cmpgt_epu8(a: __m128i, b: __m128i) -> __m128i {
-                        _mm_cmpgt_epi8(
-                            _mm_xor_si128(a, _mm_set1_epi8(-128)), // range-shift to unsigned
-                            _mm_xor_si128(b, _mm_set1_epi8(-128)),
-                        )
-                    }
+
                     let north_above = _mm_cmpgt_epu8(north, upper_bound);
                     let east_above = _mm_cmpgt_epu8(east, upper_bound);
                     let south_above = _mm_cmpgt_epu8(south, upper_bound);
@@ -451,6 +488,12 @@ mod test {
         );
         let threshold = 16;
         let count_minimum = 9;
+
+        let height = img.height();
+        let width = img.width();
+        let circle_offset = fast_detector16::calculate_offsets(width);
+        let z = unsafe{fast_detector16::determine_keypoint(&img.as_raw(), &circle_offset, width, (img.width() / 2, img.height() / 2), threshold, count_minimum)};
+        return;
         let detected = fast_detector16::detect(&img, 16, 9);
         assert_eq!(
             detected.contains(&FastPoint {
@@ -486,6 +529,19 @@ mod test {
             this point cannot possibly be a keypoint.
 
             This should not be a point. Yet OpenCV classifies it as a point.
+
+            However:
+            Values dec  [37, 37, 39, 39, 37, 42, 43, 16, 14, 13, 15, 16, 15, 38, 37, 38]
+            Values hex  [25, 25, 27, 27, 25, 2A, 2B, 10, 0E, 0D, 0F, 10, 0F, 26, 25, 26]
+            upper_bound [21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21]
+            lower_bound [01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01]
+            is_above    [FF, FF, FF, FF, FF, FF, FF, 00, 00, 00, 00, 00, 00, FF, FF, FF]
+            is_below    [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+            above_u8    [255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 255, 255, 255]
+            below_u8    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            [FF, FF, FF, FF, FF, FF, FF, 00, 00, 00, 00, 00, 00, FF, FF, FF]
+             1   2   3   4   5   6   7                           8    9  10
+            // It should be a point, even though there's only two corners with values.
         */
     }
 }
