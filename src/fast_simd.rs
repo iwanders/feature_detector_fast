@@ -105,10 +105,9 @@ pub mod fast_detector16 {
     }
 
     unsafe fn determine_keypoint(data: &[u8], circle_offset: &CircleOffsets, width: u32, p: (u32, u32), t: u8, consecutive: u8) -> Option<FastPoint> {
-            let indices =
-                _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[0]));
-        let y = p.1;
+        let indices = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[0]));
         let xx = p.0;
+        let y = p.1;
         let base_offset = (y * width + xx) as i32;
         let base_v = data[base_offset as usize];
 
@@ -142,7 +141,6 @@ pub mod fast_detector16 {
             std::mem::transmute::<_, *const i32>(&data[base_offset as usize]);
         let obtained = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
 
-        /*
         // after the gather, we end up with
         // v0 0 0 0 v1 0 0 0 v2 0 0 0 v3 0 0 0 | v4 0 0 0 v5 0 0 0 v6 0 0 0 v7
         let mask = _mm256_set_epi64x(
@@ -158,10 +156,25 @@ pub mod fast_detector16 {
         let higher = _mm256_extract_epi32(left_u32_per_lane, 4);
 
         // Finally, we can store that into a single array for indexing later.
-        let mut retrievable = [0u8; 8];
+        let mut retrievable = [0u8; 16];
         retrievable[0..4].copy_from_slice(&lower.to_le_bytes());
-        retrievable[4..].copy_from_slice(&higher.to_le_bytes());
-        */
+        retrievable[4..8].copy_from_slice(&higher.to_le_bytes());
+
+        // And, in a second gather, we can get us the remaining 8 indices.
+        let indices = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[SOUTH]));
+        let lookup_base =
+            std::mem::transmute::<_, *const i32>(&data[base_offset as usize]);
+        let obtained = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
+        let left_u32_per_lane = _mm256_shuffle_epi8(obtained, mask);
+        let lower = _mm256_extract_epi32(left_u32_per_lane, 0);
+        let higher = _mm256_extract_epi32(left_u32_per_lane, 4);
+
+        // Which we can also read into retrievable. That now holds our circle pixels.
+        retrievable[8..12].copy_from_slice(&lower.to_le_bytes());
+        retrievable[12..16].copy_from_slice(&higher.to_le_bytes());
+
+        // Retrievable is correct, confirmed that with some prints.
+
 
         let delta_f = |index: usize| {
             let pixel_v = data[(base_offset + circle_offset[index]) as usize];
