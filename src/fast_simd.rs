@@ -1,4 +1,5 @@
 use crate::fast::FastPoint;
+use std::arch::x86_64::*;
 
 /*
     avx
@@ -14,16 +15,16 @@ use crate::fast::FastPoint;
 
 */
 
-
-use std::arch::x86_64::*;
 #[allow(dead_code)]
+/// Print a vector of m128 type.
 unsafe fn pi(input: &__m128i) -> String {
     let v: [u8; 16] = [0; 16];
     _mm_storeu_si128(v.as_ptr() as *mut _, *input);
     format!("{:02X?}", v)
 }
-// Print long simd type
+
 #[allow(dead_code)]
+/// Print a vector of m256 type.
 unsafe fn pl(input: &__m256i) -> String {
     let v: [u8; 32] = [0; 32];
     _mm256_storeu_si256(v.as_ptr() as *mut _, *input);
@@ -33,6 +34,7 @@ unsafe fn pl(input: &__m256i) -> String {
 const DO_PRINTS: bool = false;
 
 #[allow(unused_macros)]
+/// Helper print macro that can be enabled or disabled.
 macro_rules! trace {
     () => (if DO_PRINTS {println!("\n");});
     ($($arg:tt)*) => {
@@ -41,7 +43,6 @@ macro_rules! trace {
         }
     }
 }
-
 
 pub const NORTH: usize = 0;
 pub const EAST: usize = 4;
@@ -69,11 +70,7 @@ pub const fn circle() -> [(i32, i32); 16] {
         (-1, -3),
     ]
 }
-
-pub const fn point(index: u8) -> (i32, i32) {
-    circle()[index as usize % circle().len()]
-}
-
+/// Create a blue circle that holds these points, for debugging.
 pub fn make_circle_image() -> image::RgbImage {
     const BLUE: image::Rgb<u8> = image::Rgb([0u8, 0u8, 255u8]);
     let mut image = image::RgbImage::new(32, 32);
@@ -84,6 +81,7 @@ pub fn make_circle_image() -> image::RgbImage {
 }
 
 pub type CircleOffsets = [i32; 16];
+/// Calculate the offets in the memory block for an image of a certain width.
 pub fn calculate_offsets(width: u32) -> CircleOffsets {
     let mut circle_offset = [0i32; 16];
     for (i, (x, y)) in circle().iter().enumerate() {
@@ -91,22 +89,22 @@ pub fn calculate_offsets(width: u32) -> CircleOffsets {
     }
     circle_offset
 }
-// ah, this is a signed comparison...
-// https://stackoverflow.com/a/24234695
-/*
-_mm_cmpgt_epu8(a, b) = _mm_cmpgt_epi8(
-    _mm_xor_epi8(a, _mm_set1_epi8(-128)),  // range-shift to unsigned
-    _mm_xor_epi8(b, _mm_set1_epi8(-128)))
-*/
+
+/// Compare u8 types in a m128 vector.
+///  https://stackoverflow.com/a/24234695
 unsafe fn _mm_cmpgt_epu8(a: __m128i, b: __m128i) -> __m128i {
+    // ah, this is a signed comparison...
+    // https://stackoverflow.com/a/24234695
     _mm_cmpgt_epi8(
         _mm_xor_si128(a, _mm_set1_epi8(-128)), // range-shift to unsigned
         _mm_xor_si128(b, _mm_set1_epi8(-128)),
     )
 }
 
+// This inline keyword actually makes a difference.
 #[inline]
-pub unsafe fn determine_keypoint(
+/// Determine whether there's a keypoint at the provided location.
+unsafe fn determine_keypoint(
     data: &[u8],
     circle_offset: &CircleOffsets,
     width: u32,
@@ -115,24 +113,26 @@ pub unsafe fn determine_keypoint(
     consecutive: u8,
 ) -> Option<FastPoint> {
     trace!("\n\nDetermine keypoint at {p:?}");
-    let indices =
-        _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[0]));
-    let m128_threshold = [t as u8; 16];
-    let m128_threshold =
-        _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_threshold[0]));
-
+    // Some shorthands
     let xx = p.0;
     let y = p.1;
     let base_offset = (y * width + xx) as i32;
     let base_v = data[base_offset as usize];
+
+    // Load the first circle indices into a vector.
+    let indices = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[0]));
+
+    // Load the thresholds into a vector.
+    let m128_threshold = [t as u8; 16];
+    let m128_threshold =
+        _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_threshold[0]));
+
+    // Load the center into a vector.
     let m128_center = [base_v as u8; 16];
-    let m128_center =
-        _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_center[0]));
+    let m128_center = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_center[0]));
     trace!("m128_center  {}", pi(&m128_center));
 
-    // pub unsafe fn _mm_loadu_si64(mem_addr: *const u8) -> __m128i
-
-    // Perform a single gather to obtain the first 8 indices.
+    // Perform a single gather to obtain the first 8 pixels from the indices.
     // core::arch::x86_64::_mm256_i32gather_epi32
     // Gather 32-bit integers from memory using 32-bit indices. 32-bit elements are
     // loaded from addresses starting at base_addr and offset by each 32-bit element in
@@ -159,7 +159,7 @@ pub unsafe fn determine_keypoint(
     let lookup_base = std::mem::transmute::<_, *const i32>(&data[base_offset as usize]);
     let obtained = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
 
-    // after the gather, we end up with
+    // after the gather, we end up with the values from our circle like this:
     // v0 0 0 0 v1 0 0 0 v2 0 0 0 v3 0 0 0 | v4 0 0 0 v5 0 0 0 v6 0 0 0 v7
     let mask = _mm256_set_epi64x(
         0, // discarded anyway
@@ -168,8 +168,10 @@ pub unsafe fn determine_keypoint(
         0x0c080400,
     );
     // we do this magic shuffle back to collapse that into
-    let left_u32_per_lane = _mm256_shuffle_epi8(obtained, mask);
     // v0 v1 v2 v3 0000000 | v4 v5 v6 v7
+    let left_u32_per_lane = _mm256_shuffle_epi8(obtained, mask);
+
+    // After which we can extract lower and higher
     let lower = _mm256_extract_epi32(left_u32_per_lane, 0);
     let higher = _mm256_extract_epi32(left_u32_per_lane, 4);
 
@@ -178,7 +180,7 @@ pub unsafe fn determine_keypoint(
     retrievable[0..4].copy_from_slice(&lower.to_le_bytes());
     retrievable[4..8].copy_from_slice(&higher.to_le_bytes());
 
-    // And, in a second gather, we can get us the remaining 8 indices.
+    // And, in a second gather, we can get us the remaining 8 indices, exactly the same:
     let indices = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(
         &circle_offset[SOUTH],
     ));
@@ -200,7 +202,7 @@ pub unsafe fn determine_keypoint(
     // similar: c - t < p < c + t
     // brigher: c + t <= p
 
-    // Load the circle's points.
+    // Now that we have those points, we can load those back into a vector.
     let p = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&retrievable[0]));
     trace!("Values hex  {}", pi(&p));
 
@@ -210,51 +212,32 @@ pub unsafe fn determine_keypoint(
     trace!("upper_bound {}", pi(&upper_bound));
     trace!("lower_bound {}", pi(&lower_bound));
 
+    // Perform the compare.
     let is_above = _mm_cmpgt_epu8(p, upper_bound);
     let is_below = _mm_cmpgt_epu8(lower_bound, p);
     trace!("is_above    {}", pi(&is_above));
     trace!("is_below    {}", pi(&is_below));
 
-    // void _mm256_storeu_si256 (__m256i * mem_addr, __m256i a)
-    /*
-    let mut above_u8 = [0u8; 32];
-    _mm_storeu_si128(
-        std::mem::transmute::<_, *mut __m128i>(&above_u8[0]),
-        is_above,
-    );
-    _mm_storeu_si128(
-        std::mem::transmute::<_, *mut __m128i>(&above_u8[16]),
-        is_above,
-    );
-    let mut below_u8 = [0u8; 32];
-    _mm_storeu_si128(
-        std::mem::transmute::<_, *mut __m128i>(&below_u8[0]),
-        is_below,
-    );
-    _mm_storeu_si128(
-        std::mem::transmute::<_, *mut __m128i>(&below_u8[16]),
-        is_below,
-    );
-    trace!("above_u8    {above_u8:?}");
-    trace!("below_u8    {below_u8:?}");
-    */
     const COUNT: usize = 16;
-
+    // Retrieve upper bits of the compare mask, which means everything fits in the top 16 bits.
     let below_bits = _mm_movemask_epi8(is_below);
     let above_bits = _mm_movemask_epi8(is_above);
     trace!("below_bits    {below_bits:?}");
     trace!("above_bits    {above_bits:?}");
 
+    // Use popcount to determine which type of keypoint it is
     let below_count = below_bits.count_ones();
     let above_count = above_bits.count_ones();
     trace!("below_count    {below_count:?}");
     trace!("above_count    {above_count:?}");
 
-    // let below_left = _mm_extract_epi64(is_below, 0);
-    // let below_right = _mm_extract_epi64(is_below, 1);
-    // let below_bits =
-
-    // There's probably a way more efficient way of doing this rotation.
+    // Then, we only have to operate on a single u32, that has bits set for the pixels that
+    // exceed the threshold.
+    let used_bits = if below_count > above_count {
+        below_bits as u32 | ((below_bits as u32) << 16)
+    } else {
+        above_bits as u32 | ((above_bits as u32) << 16)
+    };
 
     // Next, we need to figure out if there is a consecutive sequence of above or below
     // in the ring of 16.
@@ -264,20 +247,17 @@ pub unsafe fn determine_keypoint(
     //                                                  0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15
     // We can solve that problem by concatenating the vector again at the end, and iterating
     // over the section that is (16 + consecutive)
-    let mut found_consecutive = 0;
 
-    let used_bits = if below_count > above_count {
-        below_bits as u32 | ((below_bits as u32) << 16)
-    } else {
-        above_bits as u32 | ((above_bits as u32) << 16)
-    };
+    let mut found_consecutive = 0;
     for k in 0..(COUNT + consecutive as usize) {
         if (used_bits & (1 << k)) != 0 {
             found_consecutive += 1;
+            // If we found the correct number of consecutive bits, bial out.
             if found_consecutive >= consecutive {
                 return Some(FastPoint { x: xx, y });
             }
-            // We can bail out if we can not possibly reach consecutive before end of iteration
+            // We can also break if we can not possibly reach consecutive before end of iteration
+            // Needs a benchmark.
             if (k + (consecutive - found_consecutive) as usize) > (COUNT + consecutive as usize) {
                 break;
             }
@@ -302,6 +282,7 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
     let circle_offset = calculate_offsets(width);
 
     unsafe {
+        // Load a vector of thresholds.
         let m128_threshold = [t as u8; 16];
         let m128_threshold =
             _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_threshold[0]));
@@ -314,16 +295,14 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
             // 11           5
             //   10       6
             //     9  8  7
-            // What about checking the entire row of 12-4 and and only for those where
-            // 12 and 4 indicate possible corner check anything off the row?
 
             // Cardinal directions:
             //  n >= 12: 3/4
             //  n >= 9 : 2/4
-
             // If that is the case, and only then should we do real work.
-            const STEP_SIZE: usize = 16;
+            // We'll check this in steps of 16 consecutive pixels (center points) in a row.
 
+            const STEP_SIZE: usize = 16;
             let x_chunks = (width - 3 - 3) / STEP_SIZE as u32;
             for x_step in 0..x_chunks {
                 let x = 3 + x_step * STEP_SIZE as u32;
@@ -331,7 +310,6 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
                 trace!("\n\n");
                 // Ok, here we go.
                 // __m128i = 16 bytes;
-                // __m256i = 32 bytes;
                 let base_offset = (y * width + x) as i32;
 
                 // Obtain 16 centers.
@@ -361,17 +339,16 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
                 trace!("west:  {}", pi(&west));
 
                 // Ok, great, we have the data on hand, now for each byte, we can
-                // Now, we can calculate the lower and upper bounds.
+                // Now, we can calculate the lower and upper bounds that we should exceed.
                 let upper_bound = _mm_adds_epu8(c, m128_threshold);
                 let lower_bound = _mm_subs_epu8(c, m128_threshold);
                 trace!("");
                 trace!("upbnd: {}", pi(&upper_bound));
                 trace!("lrbnd: {}", pi(&lower_bound));
 
-                // Now, we just need to determine if 3 out of 4 of the cardinal directions are above or below.
+                // Perform the compare to determine if the point is beyond the thresholds.
                 // These masks return 0xFF if true, x00 if false.
                 // _mm_cmpgt_epi8: dst[i+7:i] := ( a[i+7:i] > b[i+7:i] ) ? 0xFF : 0
-
                 let north_above = _mm_cmpgt_epu8(north, upper_bound);
                 let east_above = _mm_cmpgt_epu8(east, upper_bound);
                 let south_above = _mm_cmpgt_epu8(south, upper_bound);
@@ -394,6 +371,10 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
 
                 trace!("");
 
+                // Next, depending on the number of consecutive points, we perform some masking to
+                // determine if the point is a potential keypoint.
+                // Yes, there is a branch in the loop here, but it doesn't seem to have a
+                // tremenduous amount of impact.
                 let check_mask = if consecutive < 12 && consecutive >= 9 {
                     // Now, we need a way to determine 2 out of 4.
                     //               && south && west
@@ -401,12 +382,11 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
                     // north && east &&       &&
                     //       && east && south &&
 
-                    // That has only four options, why not just write it out?
-                    // That has only four options, why not just write it out?
                     let above_0 = _mm_and_si128(south_above, west_above);
                     let above_1 = _mm_and_si128(north_above, west_above);
                     let above_2 = _mm_and_si128(north_above, east_above);
                     let above_3 = _mm_and_si128(east_above, south_above);
+                    // Finally, or those because any of them makes it a potential keypoint.
                     let above_2_found = _mm_or_si128(
                         _mm_or_si128(above_0, above_1),
                         _mm_or_si128(above_2, above_3),
@@ -439,13 +419,10 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
                     // north && east &&       && west
                     // north && east && south &&
 
-                    // That has only four options, why not just write it out?
-                    let above_0 =
-                        _mm_and_si128(_mm_and_si128(east_above, south_above), west_above);
+                    let above_0 = _mm_and_si128(_mm_and_si128(east_above, south_above), west_above);
                     let above_1 =
                         _mm_and_si128(_mm_and_si128(north_above, south_above), west_above);
-                    let above_2 =
-                        _mm_and_si128(_mm_and_si128(north_above, east_above), west_above);
+                    let above_2 = _mm_and_si128(_mm_and_si128(north_above, east_above), west_above);
                     let above_3 =
                         _mm_and_si128(_mm_and_si128(north_above, east_above), south_above);
                     let above_3_found = _mm_or_si128(
@@ -455,12 +432,10 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
                     trace!("3 gtf: {}", pi(&above_3_found));
 
                     // And the same for below.
-                    let below_0 =
-                        _mm_and_si128(_mm_and_si128(east_below, south_below), west_below);
+                    let below_0 = _mm_and_si128(_mm_and_si128(east_below, south_below), west_below);
                     let below_1 =
                         _mm_and_si128(_mm_and_si128(north_below, south_below), west_below);
-                    let below_2 =
-                        _mm_and_si128(_mm_and_si128(north_below, east_below), west_below);
+                    let below_2 = _mm_and_si128(_mm_and_si128(north_below, east_below), west_below);
                     let below_3 =
                         _mm_and_si128(_mm_and_si128(north_below, east_below), south_below);
                     let below_3_found = _mm_or_si128(
@@ -481,6 +456,8 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
                     [0xFFu8; STEP_SIZE]
                 };
 
+                // Finally, iterate over the potential candidates and determine if they were really
+                // a keypoint using the more extensive checks.
                 for xx in x..(x + STEP_SIZE as u32) {
                     if check_mask[(xx - x) as usize] == 0 {
                         continue;
@@ -497,20 +474,15 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
                     }
                 }
             }
-            // for i in (input.len() / c) * c..input.len()
-            for x_step in
-                ((width - 3 - 3) / STEP_SIZE as u32) * (STEP_SIZE as u32)..(width - 3 - 3)
+
+            // Clean up the rest of the row that didn't fit in chunks of 16.
+            for x_step in ((width - 3 - 3) / STEP_SIZE as u32) * (STEP_SIZE as u32)..(width - 3 - 3)
             {
                 // for x in (width - 16 - 3)..(width -3){
                 let x = x_step + 3;
-                if let Some(keypoint) = determine_keypoint(
-                    data,
-                    &circle_offset,
-                    width,
-                    (x, y),
-                    t as u8,
-                    consecutive,
-                ) {
+                if let Some(keypoint) =
+                    determine_keypoint(data, &circle_offset, width, (x, y), t as u8, consecutive)
+                {
                     r.push(keypoint);
                 }
             }
@@ -518,7 +490,6 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
     }
     r
 }
-
 
 pub fn detector(img: &image::GrayImage, config: &crate::fast::FastConfig) -> Vec<FastPoint> {
     detect(img, config.threshold, config.count)
