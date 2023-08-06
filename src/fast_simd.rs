@@ -405,18 +405,51 @@ pub mod fast_detector16 {
                     trace!("st_bl: {}", pi(&south_below));
                     trace!("we_bl: {}", pi(&west_below));
 
-                    // Now, we need a way to determine 3 out of 4.
-                    //          east && south && west
-                    // north &&         south && west
-                    // north && east &&       && west
-                    // north && east && south &&
-
-                    // That has only four options, why not just write it out?
                     trace!("");
 
                     let check_mask = if (consecutive < 12 && consecutive >= 9) {
-                        [0xFFu8; 16]
+                        // Now, we need a way to determine 2 out of 4.
+                        //               && south && west
+                        // north &&               && west
+                        // north && east &&       &&
+                        //       && east && south &&
+
+                        // That has only four options, why not just write it out?
+                        // That has only four options, why not just write it out?
+                        let above_0 = _mm_and_si128(south_above, west_above);
+                        let above_1 = _mm_and_si128(north_above, west_above);
+                        let above_2 = _mm_and_si128(north_above, east_above);
+                        let above_3 = _mm_and_si128(east_above, south_above);
+                        let above_2_found = _mm_or_si128(
+                            _mm_or_si128(above_0, above_1),
+                            _mm_or_si128(above_2, above_3),
+                        );
+                        trace!("2 gtf: {}", pi(&above_2_found));
+
+                        // And the same for below.
+                        let below_0 = _mm_and_si128(south_below, west_below);
+                        let below_1 = _mm_and_si128(north_below, west_below);
+                        let below_2 = _mm_and_si128(north_below, east_below);
+                        let below_3 = _mm_and_si128(east_below, south_below);
+                        let below_2_found = _mm_or_si128(
+                            _mm_or_si128(below_0, below_1),
+                            _mm_or_si128(below_2, below_3),
+                        );
+                        trace!("2 ltf: {}", pi(&below_2_found));
+
+                        let found_3 = _mm_or_si128(above_2_found, below_2_found);
+
+                        let mut mask = [0u8; 16];
+                        _mm_storeu_si128(std::mem::transmute::<_, *mut __m128i>(&mask[0]), found_3);
+                        mask
                     } else if (consecutive >= 12) {
+                        // Now, we need a way to determine 3 out of 4.
+                        //          east && south && west
+                        // north &&         south && west
+                        // north && east &&       && west
+                        // north && east && south &&
+
+                        // That has only four options, why not just write it out?
                         let above_0 =
                             _mm_and_si128(_mm_and_si128(east_above, south_above), west_above);
                         let above_1 =
