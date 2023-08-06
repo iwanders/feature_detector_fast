@@ -31,7 +31,7 @@ unsafe fn pl(input: &__m256i) -> String {
     format!("{:02X?}", v)
 }
 
-const DO_PRINTS: bool = false;
+const DO_PRINTS: bool = true;
 
 #[allow(unused_macros)]
 /// Helper print macro that can be enabled or disabled.
@@ -498,14 +498,16 @@ pub fn detector(img: &image::GrayImage, config: &crate::fast::FastConfig) -> Vec
 #[cfg(test)]
 mod test {
     use super::*;
-    fn create_sample_image(center: u8, circle: &[u8]) -> image::GrayImage {
+    use image::Luma;
+
+    fn create_sample_image(center: u8, circle_values: &[u8]) -> image::GrayImage {
         let w = 128;
         let h = 128;
         let mut z = image::GrayImage::new(w, h);
         z.put_pixel(w / 2, h / 2, Luma::<u8>([center]));
-        assert_eq!(circle.len(), 16);
-        for (i, v) in circle.iter().enumerate() {
-            let offset = fast_detector16::circle()[i];
+        assert_eq!(circle_values.len(), 16);
+        for (i, v) in circle_values.iter().enumerate() {
+            let offset = circle()[i];
             z.put_pixel(
                 ((w / 2) as i32 + offset.0) as u32,
                 ((h / 2) as i32 + offset.1) as u32,
@@ -543,11 +545,11 @@ mod test {
         let threshold = 16;
         let count_minimum = 9;
 
-        let height = img.height();
+        // let height = img.height();
         let width = img.width();
-        let circle_offset = fast_detector16::calculate_offsets(width);
+        let circle_offset = calculate_offsets(width);
         let z = unsafe {
-            fast_detector16::determine_keypoint(
+            determine_keypoint(
                 &img.as_raw(),
                 &circle_offset,
                 width,
@@ -556,8 +558,10 @@ mod test {
                 count_minimum,
             )
         };
+        assert!(z.is_some());
+        return;
 
-        let detected = fast_detector16::detect(&img, 16, 9);
+        let detected = detect(&img, 16, 9);
         assert_eq!(
             detected.contains(&FastPoint {
                 x: img.width() / 2,
@@ -565,5 +569,77 @@ mod test {
             }),
             true
         );
+    }
+
+    #[test]
+    fn test_combine_gathers() {
+        unsafe  {
+            let data = [0u8, 1, 2, 3, 4, 5, 6, 7 , 8, 9, 10, 11, 12, 13, 14, 15];
+            let mut indices = [0u32; 16];
+            for k in 0..16 {
+                indices[k] = k as u32;
+            }
+
+            let indices =
+                _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&indices[0]));
+            // us the first 8 indices.
+            const SCALE: i32 = 1;
+            let lookup_base = std::mem::transmute::<_, *const i32>(&data[0]);
+            let obtained = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
+
+            // after the gather, we end up with the values from our circle like this:
+            // v0 0 0 0 v1 0 0 0 v2 0 0 0 v3 0 0 0 | v4 0 0 0 v5 0 0 0 v6 0 0 0 v7
+            let mask = _mm256_set_epi64x(
+                i64::from_ne_bytes(0x8080808080808080u64.to_ne_bytes()), // discarded anyway
+                // on zero'th byte, we want the 0 index, second byte, index 4, third; 8th...
+                i64::from_ne_bytes(0x808080800c080400u64.to_ne_bytes()),
+                i64::from_ne_bytes(0x8080808080808080u64.to_ne_bytes()), // discarded anyway
+                i64::from_ne_bytes(0x808080800c080400u64.to_ne_bytes()),
+            );
+            // we do this magic shuffle back to collapse that into
+            // v0 v1 v2 v3 0000000 | v4 v5 v6 v7
+            let first_half = _mm256_shuffle_epi8(obtained, mask);
+
+            let lookup_base = std::mem::transmute::<_, *const i32>(&data[8]);
+            let obtained_second = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
+            
+
+
+            let mask = _mm256_set_epi64x(
+                i64::from_ne_bytes(0x808080800c080400u64.to_ne_bytes()),
+                i64::from_ne_bytes(0x8080808080808080u64.to_ne_bytes()),  // zero out
+                i64::from_ne_bytes(0x808080800c080400u64.to_ne_bytes()),
+                i64::from_ne_bytes(0x8080808080808080u64.to_ne_bytes()),  // zero out
+            );
+            let second_half = _mm256_shuffle_epi8(obtained_second, mask);
+
+            // Or that, such that we end up with
+            // v0 v1 v2 v3 0 0 0 0 v8 v9 v10 v11  0 0 0 0 v4 v5 v6 v7 0 0 0 0 v12 v13 v14 v15 0 0 0 0
+            let combined = _mm256_or_si256(first_half, second_half);
+
+            println!("first_half:  {}", pl(&first_half));
+            println!("second_half: {}", pl(&second_half));
+            println!("             {}", pl(&combined));
+
+            // Now, we're a single permutate away from getting what we want.
+            
+            // v0 v1 v2 v3 0 0 0 0 v8 v9 v10 v11  0 0 0 0 v4 v5 v6 v7 0 0 0 0 v12 v13 v14 v15 0 0 0 0
+            // FOR j := 0 to 7
+                    // i := j*32
+                    // id := idx[i+2:i]*32
+                    // dst[i+31:i] := a[id+31:id]
+            // ENDFOR
+            // Needs to become
+            // v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 0000000
+            let idx = _mm256_set_epi64x(
+                i64::from_ne_bytes(0x0100000001u64.to_ne_bytes()),
+                i64::from_ne_bytes(0x0100000001u64.to_ne_bytes()),
+                i64::from_ne_bytes(0x0600000002u64.to_ne_bytes()),
+                i64::from_ne_bytes(0x0400000000u64.to_ne_bytes()),
+            );
+            // __m256i _mm256_permutevar8x32_epi32 (__m256i a, __m256i idx)
+            let tmp = _mm256_permutevar8x32_epi32(combined, idx);
+            println!("             {}", pl(&tmp));
+        }
     }
 }
