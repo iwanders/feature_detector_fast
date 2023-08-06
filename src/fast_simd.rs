@@ -228,6 +228,7 @@ pub mod fast_detector16 {
         trace!("is_below    {}", pi(&is_below));
 
         // void _mm256_storeu_si256 (__m256i * mem_addr, __m256i a)
+        /*
         let mut above_u8 = [0u8; 32];
         _mm_storeu_si128(
             std::mem::transmute::<_, *mut __m128i>(&above_u8[0]),
@@ -248,7 +249,23 @@ pub mod fast_detector16 {
         );
         trace!("above_u8    {above_u8:?}");
         trace!("below_u8    {below_u8:?}");
+        */
         const COUNT: usize = 16;
+
+        let below_bits = _mm_movemask_epi8(is_below);
+        let above_bits = _mm_movemask_epi8(is_above);
+        trace!("below_bits    {below_bits:?}");
+        trace!("above_bits    {above_bits:?}");
+
+        let below_count = below_bits.count_ones();
+        let above_count = above_bits.count_ones();
+        trace!("below_count    {below_count:?}");
+        trace!("above_count    {above_count:?}");
+
+        // let below_left = _mm_extract_epi64(is_below, 0);
+        // let below_right = _mm_extract_epi64(is_below, 1);
+        // let below_bits = 
+
 
         // There's probably a way more efficient way of doing this rotation.
 
@@ -261,8 +278,14 @@ pub mod fast_detector16 {
         // We can solve that problem by concatenating the vector again at the end, and iterating
         // over the section that is (16 + consecutive)
         let mut found_consecutive = 0;
+
+        let used_bits = if below_count > above_count {
+            (below_bits as u32 | ((below_bits as u32) << 16))
+        } else {
+            (above_bits as u32 | ((above_bits as u32) << 16))
+        };
         for k in 0..(COUNT + consecutive as usize) {
-            if (above_u8[k] != 0) {
+            if ((used_bits & (1 << k)) != 0) {
                 found_consecutive += 1;
                 if found_consecutive >= consecutive {
                     return Some(FastPoint { x: xx, y });
@@ -272,17 +295,6 @@ pub mod fast_detector16 {
             }
         }
 
-        let mut found_consecutive = 0;
-        for k in 0..(COUNT + consecutive as usize) {
-            if (below_u8[k] != 0) {
-                found_consecutive += 1;
-                if found_consecutive >= consecutive {
-                    return Some(FastPoint { x: xx, y });
-                }
-            } else {
-                found_consecutive = 0;
-            }
-        }
         None
     }
 
