@@ -335,10 +335,11 @@ pub mod fast_detector16 {
                 //  n >= 9 : 2/4
 
                 // If that is the case, and only then should we do real work.
+                const STEP_SIZE: usize = 16;
 
-                let x_chunks = (width - 3 - 3) / 16;
+                let x_chunks = (width - 3 - 3) / STEP_SIZE as u32;
                 for x_step in 0..x_chunks {
-                    let x = 3 + x_step * 16;
+                    let x = 3 + x_step * STEP_SIZE as u32;
 
                     trace!("\n\n");
                     // Ok, here we go.
@@ -438,7 +439,7 @@ pub mod fast_detector16 {
 
                         let found_3 = _mm_or_si128(above_2_found, below_2_found);
 
-                        let mut mask = [0u8; 16];
+                        let mut mask = [0u8; STEP_SIZE];
                         _mm_storeu_si128(std::mem::transmute::<_, *mut __m128i>(&mask[0]), found_3);
                         mask
                     } else if (consecutive >= 12) {
@@ -480,14 +481,14 @@ pub mod fast_detector16 {
 
                         let found_3 = _mm_or_si128(above_3_found, below_3_found);
 
-                        let mut mask = [0u8; 16];
+                        let mut mask = [0u8; STEP_SIZE];
                         _mm_storeu_si128(std::mem::transmute::<_, *mut __m128i>(&mask[0]), found_3);
                         mask
                     } else {
-                        [0xFFu8; 16]
+                        [0xFFu8; STEP_SIZE]
                     };
 
-                    for xx in x..(x + 16) {
+                    for xx in x..(x + STEP_SIZE as u32) {
                         if check_mask[(xx - x) as usize] == 0 {
                             continue;
                         }
@@ -504,7 +505,7 @@ pub mod fast_detector16 {
                     }
                 }
                 // for i in (input.len() / c) * c..input.len()
-                for x_step in ((width - 3 - 3) / 16) * 16..(width - 3 - 3) {
+                for x_step in ((width - 3 - 3) / STEP_SIZE as u32) * (STEP_SIZE as u32)..(width - 3 - 3) {
                     // for x in (width - 16 - 3)..(width -3){
                     let x = x_step + 3;
                     if let Some(keypoint) = determine_keypoint(
