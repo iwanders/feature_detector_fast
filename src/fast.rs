@@ -95,16 +95,6 @@ pub mod fast_detector16 {
 
         for y in 3..(height - 3) {
             for x in 3..(width - 3) {
-                let _interested_in_prints = (y == 47 && x == 115);
-                #[allow(unused_macros)]
-                macro_rules! trace {
-                    () => (if _interested_in_prints {println!("\n");});
-                    ($($arg:tt)*) => {
-                        if _interested_in_prints {
-                            println!($($arg)*);
-                        }
-                    }
-                }
                 // exists range n where all entries different than p - t.
 
                 let base_v = image.get_pixel(x, y)[0];
@@ -137,7 +127,7 @@ pub mod fast_detector16 {
                     pos[i] = d > 0 && a > t as i16;
                 }
 
-                if (DO_PRINTS && false) || _interested_in_prints {
+                if DO_PRINTS && false {
                     for i in 0..COUNT {
                         print!("  {} ", delta_f(i));
                     }
@@ -170,7 +160,7 @@ pub mod fast_detector16 {
                         >= consecutive as usize;
 
                     if n || p {
-                        if DO_PRINTS || _interested_in_prints {
+                        if DO_PRINTS {
                             println!("  Succceed by p: {p}, n: {n} at s {s}");
                         }
                         r.push(FastPoint { x, y });

@@ -41,7 +41,7 @@ pub mod fast_detector16 {
         format!("{:02X?}", v)
     }
 
-    const DO_PRINTS: bool = true;
+    const DO_PRINTS: bool = false;
 
     #[allow(unused_macros)]
     macro_rules! trace {
@@ -118,9 +118,17 @@ pub mod fast_detector16 {
     }
 
     #[inline]
-    pub unsafe fn determine_keypoint(data: &[u8], circle_offset: &CircleOffsets, width: u32, p: (u32, u32), t: u8, consecutive: u8) -> Option<FastPoint> {
+    pub unsafe fn determine_keypoint(
+        data: &[u8],
+        circle_offset: &CircleOffsets,
+        width: u32,
+        p: (u32, u32),
+        t: u8,
+        consecutive: u8,
+    ) -> Option<FastPoint> {
         trace!("\n\nDetermine keypoint at {p:?}");
-        let indices = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[0]));
+        let indices =
+            _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[0]));
         let m128_threshold = [t as u8; 16];
         let m128_threshold =
             _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_threshold[0]));
@@ -130,7 +138,8 @@ pub mod fast_detector16 {
         let base_offset = (y * width + xx) as i32;
         let base_v = data[base_offset as usize];
         let m128_center = [base_v as u8; 16];
-        let m128_center = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_center[0]));
+        let m128_center =
+            _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_center[0]));
 
         // pub unsafe fn _mm_loadu_si64(mem_addr: *const u8) -> __m128i
 
@@ -158,8 +167,7 @@ pub mod fast_detector16 {
         // vindex is already inside circle_offset, so we can perform one fell swoop to land
         // us the first 8 indices.
         const SCALE: i32 = 1;
-        let lookup_base =
-            std::mem::transmute::<_, *const i32>(&data[base_offset as usize]);
+        let lookup_base = std::mem::transmute::<_, *const i32>(&data[base_offset as usize]);
         let obtained = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
 
         // after the gather, we end up with
@@ -182,9 +190,10 @@ pub mod fast_detector16 {
         retrievable[4..8].copy_from_slice(&higher.to_le_bytes());
 
         // And, in a second gather, we can get us the remaining 8 indices.
-        let indices = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[SOUTH]));
-        let lookup_base =
-            std::mem::transmute::<_, *const i32>(&data[base_offset as usize]);
+        let indices = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(
+            &circle_offset[SOUTH],
+        ));
+        let lookup_base = std::mem::transmute::<_, *const i32>(&data[base_offset as usize]);
         let obtained = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
         let left_u32_per_lane = _mm256_shuffle_epi8(obtained, mask);
         let lower = _mm256_extract_epi32(left_u32_per_lane, 0);
@@ -198,9 +207,9 @@ pub mod fast_detector16 {
         trace!("Values dec  {retrievable:?}");
 
         // Definition of the paper is, let a cirle point be p and center of the circle c.
-            // darker: p <= c - t
-            // similar: c - t < p < c + t
-            // brigher: c + t <= p
+        // darker: p <= c - t
+        // similar: c - t < p < c + t
+        // brigher: c + t <= p
 
         // Load the circle's points.
         let p = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&retrievable[0]));
@@ -219,19 +228,24 @@ pub mod fast_detector16 {
 
         // void _mm256_storeu_si256 (__m256i * mem_addr, __m256i a)
         let mut above_u8 = [0u8; 16];
-        _mm_storeu_si128(std::mem::transmute::<_, *mut __m128i>(&above_u8[0]), is_above);
+        _mm_storeu_si128(
+            std::mem::transmute::<_, *mut __m128i>(&above_u8[0]),
+            is_above,
+        );
         let mut below_u8 = [0u8; 16];
-        _mm_storeu_si128(std::mem::transmute::<_, *mut __m128i>(&below_u8[0]), is_below);
+        _mm_storeu_si128(
+            std::mem::transmute::<_, *mut __m128i>(&below_u8[0]),
+            is_below,
+        );
         trace!("above_u8    {above_u8:?}");
         trace!("below_u8    {below_u8:?}");
-   
+
         let delta_f = |index: usize| {
             let pixel_v = data[(base_offset + circle_offset[index]) as usize];
             let delta = base_v as i16 - pixel_v as i16;
             delta
         };
-        let p_f =
-            |index: usize| data[(base_offset + circle_offset[index]) as usize];
+        let p_f = |index: usize| data[(base_offset + circle_offset[index]) as usize];
 
         const COUNT: usize = circle().len() as usize;
         let mut neg = [false; COUNT];
@@ -317,8 +331,10 @@ pub mod fast_detector16 {
                 // What about checking the entire row of 12-4 and and only for those where
                 // 12 and 4 indicate possible corner check anything off the row?
 
-                // The fastest check is ensure 3 out of 4 of the cardinal directions
-                // north, east, south, west exceeds the threshold.
+                // Cardinal directions:
+                //  n >= 12: 3/4
+                //  n >= 9 : 2/4
+
                 // If that is the case, and only then should we do real work.
 
                 let x_chunks = (width - 3 - 3) / 16;
@@ -397,45 +413,60 @@ pub mod fast_detector16 {
 
                     // That has only four options, why not just write it out?
                     trace!("");
-                    let above_0 = _mm_and_si128(_mm_and_si128(east_above, south_above), west_above);
-                    let above_1 =
-                        _mm_and_si128(_mm_and_si128(north_above, south_above), west_above);
-                    let above_2 = _mm_and_si128(_mm_and_si128(north_above, east_above), west_above);
-                    let above_3 =
-                        _mm_and_si128(_mm_and_si128(north_above, east_above), south_above);
-                    let above_3_found = _mm_or_si128(
-                        _mm_or_si128(above_0, above_1),
-                        _mm_or_si128(above_2, above_3),
-                    );
-                    trace!("3 gtf: {}", pi(&above_3_found));
 
-                    // And the same for below.
-                    let below_0 = _mm_and_si128(_mm_and_si128(east_below, south_below), west_below);
-                    let below_1 =
-                        _mm_and_si128(_mm_and_si128(north_below, south_below), west_below);
-                    let below_2 = _mm_and_si128(_mm_and_si128(north_below, east_below), west_below);
-                    let below_3 =
-                        _mm_and_si128(_mm_and_si128(north_below, east_below), south_below);
-                    let below_3_found = _mm_or_si128(
-                        _mm_or_si128(below_0, below_1),
-                        _mm_or_si128(below_2, below_3),
-                    );
-                    trace!("3 ltf: {}", pi(&below_3_found));
+                    let check_mask = if (consecutive < 12 && consecutive >= 9) {
+                        [0xFFu8; 16]
+                    } else if (consecutive >= 12) {
+                        let above_0 =
+                            _mm_and_si128(_mm_and_si128(east_above, south_above), west_above);
+                        let above_1 =
+                            _mm_and_si128(_mm_and_si128(north_above, south_above), west_above);
+                        let above_2 =
+                            _mm_and_si128(_mm_and_si128(north_above, east_above), west_above);
+                        let above_3 =
+                            _mm_and_si128(_mm_and_si128(north_above, east_above), south_above);
+                        let above_3_found = _mm_or_si128(
+                            _mm_or_si128(above_0, above_1),
+                            _mm_or_si128(above_2, above_3),
+                        );
+                        trace!("3 gtf: {}", pi(&above_3_found));
 
-                    let found_3 = _mm_or_si128(above_3_found, below_3_found);
-                    let found3_upper = _mm_extract_epi64(found_3, 0);
-                    let found3_lower = _mm_extract_epi64(found_3, 1);
-                    if (found3_upper == 0 && found3_lower == 0) {
-                        trace!("Continue for {y}, {x}");
-                        continue;
-                    }
-                    let combined = (found3_upper as u128) | ((found3_lower as u128) << 64);
+                        // And the same for below.
+                        let below_0 =
+                            _mm_and_si128(_mm_and_si128(east_below, south_below), west_below);
+                        let below_1 =
+                            _mm_and_si128(_mm_and_si128(north_below, south_below), west_below);
+                        let below_2 =
+                            _mm_and_si128(_mm_and_si128(north_below, east_below), west_below);
+                        let below_3 =
+                            _mm_and_si128(_mm_and_si128(north_below, east_below), south_below);
+                        let below_3_found = _mm_or_si128(
+                            _mm_or_si128(below_0, below_1),
+                            _mm_or_si128(below_2, below_3),
+                        );
+                        trace!("3 ltf: {}", pi(&below_3_found));
+
+                        let found_3 = _mm_or_si128(above_3_found, below_3_found);
+
+                        let mut mask = [0u8; 16];
+                        _mm_storeu_si128(std::mem::transmute::<_, *mut __m128i>(&mask[0]), found_3);
+                        mask
+                    } else {
+                        [0xFFu8; 16]
+                    };
 
                     for xx in x..(x + 16) {
-                        if ((combined & (0xFFu128 << (xx - x))) == 0) {
+                        if check_mask[(xx - x) as usize] == 0 {
                             continue;
                         }
-                        if let Some(keypoint) = determine_keypoint(data, &circle_offset, width, (xx, y), t as u8, consecutive) {
+                        if let Some(keypoint) = determine_keypoint(
+                            data,
+                            &circle_offset,
+                            width,
+                            (xx, y),
+                            t as u8,
+                            consecutive,
+                        ) {
                             r.push(keypoint);
                         }
                     }
@@ -444,7 +475,14 @@ pub mod fast_detector16 {
                 for x_step in ((width - 3 - 3) / 16) * 16..(width - 3 - 3) {
                     // for x in (width - 16 - 3)..(width -3){
                     let x = x_step + 3;
-                    if let Some(keypoint) = determine_keypoint(data, &circle_offset, width, (x, y), t as u8, consecutive) {
+                    if let Some(keypoint) = determine_keypoint(
+                        data,
+                        &circle_offset,
+                        width,
+                        (x, y),
+                        t as u8,
+                        consecutive,
+                    ) {
                         r.push(keypoint);
                     }
                 }
@@ -482,7 +520,8 @@ mod test {
     fn test_47_115_hand() {
         let img = create_sample_image(
             17,
-            &[// N              E                S              W
+            &[
+                // N              E                S              W
                 37, 37, 39, 39, 37, 42, 43, 16, 14, 13, 15, 16, 15, 38, 37, 38,
             ],
         );
@@ -492,7 +531,16 @@ mod test {
         let height = img.height();
         let width = img.width();
         let circle_offset = fast_detector16::calculate_offsets(width);
-        let z = unsafe{fast_detector16::determine_keypoint(&img.as_raw(), &circle_offset, width, (img.width() / 2, img.height() / 2), threshold, count_minimum)};
+        let z = unsafe {
+            fast_detector16::determine_keypoint(
+                &img.as_raw(),
+                &circle_offset,
+                width,
+                (img.width() / 2, img.height() / 2),
+                threshold,
+                count_minimum,
+            )
+        };
         return;
         let detected = fast_detector16::detect(&img, 16, 9);
         assert_eq!(
@@ -500,7 +548,7 @@ mod test {
                 x: img.width() / 2,
                 y: img.height() / 2
             }),
-            false
+            true
         );
         /*
             Definition of the paper is, let a cirle point be p and center of the circle c.

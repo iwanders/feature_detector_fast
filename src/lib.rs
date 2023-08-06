@@ -21,7 +21,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = fast::FastConfig {
         threshold: 16,
-        count: 9,
+        count: 12,
         non_maximal_supression: false,
     };
 
