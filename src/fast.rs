@@ -255,7 +255,7 @@ pub struct FastConfig {
 }
 
 pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
-    let mut r = fast_detector16::detect(img, config.threshold, config.count);
+    let r = fast_detector16::detect(img, config.threshold, config.count);
 
     if config.non_maximal_supression {
         return fast_detector16::non_max_supression(img, &r, config.threshold);

@@ -26,11 +26,11 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let start = std::time::Instant::now();
-    let mut keypoints_simd = fast_simd::detector(&luma_view, &config);
+    let keypoints_simd = fast_simd::detector(&luma_view, &config);
     println!("simd is: {:?}", start.elapsed());
 
     let start = std::time::Instant::now();
-    let mut keypoints = fast::detector(&luma_view, &config);
+    let keypoints = fast::detector(&luma_view, &config);
     println!("normal is: {:?}", start.elapsed());
 
     if keypoints_simd != keypoints {

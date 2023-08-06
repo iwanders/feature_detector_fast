@@ -1,5 +1,4 @@
 use crate::fast::FastPoint;
-use image::{GenericImageView, Luma};
 
 /*
     avx
@@ -29,12 +28,14 @@ use image::{GenericImageView, Luma};
 pub mod fast_detector16 {
 
     use std::arch::x86_64::*;
+    #[allow(dead_code)]
     unsafe fn pi(input: &__m128i) -> String {
         let v: [u8; 16] = [0; 16];
         _mm_storeu_si128(v.as_ptr() as *mut _, *input);
         format!("{:02X?}", v)
     }
     // Print long simd type
+    #[allow(dead_code)]
     unsafe fn pl(input: &__m256i) -> String {
         let v: [u8; 32] = [0; 32];
         _mm256_storeu_si256(v.as_ptr() as *mut _, *input);
@@ -264,8 +265,7 @@ pub mod fast_detector16 {
 
         // let below_left = _mm_extract_epi64(is_below, 0);
         // let below_right = _mm_extract_epi64(is_below, 1);
-        // let below_bits = 
-
+        // let below_bits =
 
         // There's probably a way more efficient way of doing this rotation.
 
@@ -280,12 +280,12 @@ pub mod fast_detector16 {
         let mut found_consecutive = 0;
 
         let used_bits = if below_count > above_count {
-            (below_bits as u32 | ((below_bits as u32) << 16))
+            below_bits as u32 | ((below_bits as u32) << 16)
         } else {
-            (above_bits as u32 | ((above_bits as u32) << 16))
+            above_bits as u32 | ((above_bits as u32) << 16)
         };
         for k in 0..(COUNT + consecutive as usize) {
-            if ((used_bits & (1 << k)) != 0) {
+            if (used_bits & (1 << k)) != 0 {
                 found_consecutive += 1;
                 if found_consecutive >= consecutive {
                     return Some(FastPoint { x: xx, y });
@@ -308,12 +308,9 @@ pub mod fast_detector16 {
         let data = image.as_raw();
 
         // calculate the circle offsets for the data once.
-        let mut circle_offset = calculate_offsets(width);
+        let circle_offset = calculate_offsets(width);
 
         unsafe {
-            let indices =
-                _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[0]));
-
             let m128_threshold = [t as u8; 16];
             let m128_threshold =
                 _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_threshold[0]));
@@ -407,7 +404,7 @@ pub mod fast_detector16 {
 
                     trace!("");
 
-                    let check_mask = if (consecutive < 12 && consecutive >= 9) {
+                    let check_mask = if consecutive < 12 && consecutive >= 9 {
                         // Now, we need a way to determine 2 out of 4.
                         //               && south && west
                         // north &&               && west
@@ -440,9 +437,12 @@ pub mod fast_detector16 {
                         let found_3 = _mm_or_si128(above_2_found, below_2_found);
 
                         let mut mask = [0u8; STEP_SIZE];
-                        _mm_storeu_si128(std::mem::transmute::<_, *mut __m128i>(&mask[0]), found_3);
+                        _mm_storeu_si128(
+                            std::mem::transmute::<_, *mut __m128i>(&mut mask[0]),
+                            found_3,
+                        );
                         mask
-                    } else if (consecutive >= 12) {
+                    } else if consecutive >= 12 {
                         // Now, we need a way to determine 3 out of 4.
                         //          east && south && west
                         // north &&         south && west
@@ -482,7 +482,10 @@ pub mod fast_detector16 {
                         let found_3 = _mm_or_si128(above_3_found, below_3_found);
 
                         let mut mask = [0u8; STEP_SIZE];
-                        _mm_storeu_si128(std::mem::transmute::<_, *mut __m128i>(&mask[0]), found_3);
+                        _mm_storeu_si128(
+                            std::mem::transmute::<_, *mut __m128i>(&mut mask[0]),
+                            found_3,
+                        );
                         mask
                     } else {
                         [0xFFu8; STEP_SIZE]
@@ -505,7 +508,9 @@ pub mod fast_detector16 {
                     }
                 }
                 // for i in (input.len() / c) * c..input.len()
-                for x_step in ((width - 3 - 3) / STEP_SIZE as u32) * (STEP_SIZE as u32)..(width - 3 - 3) {
+                for x_step in
+                    ((width - 3 - 3) / STEP_SIZE as u32) * (STEP_SIZE as u32)..(width - 3 - 3)
+                {
                     // for x in (width - 16 - 3)..(width -3){
                     let x = x_step + 3;
                     if let Some(keypoint) = determine_keypoint(
@@ -571,7 +576,9 @@ mod test {
                 37, 37, 39, 39, 37, 42, 43, 16, 14, 13, 15, 16, 15, 38, 37, 38,
             ],
         );
-        let _ = img.save("/tmp/test_47_115_hand.png").expect("should be able to write image");
+        let _ = img
+            .save("/tmp/test_47_115_hand.png")
+            .expect("should be able to write image");
         let threshold = 16;
         let count_minimum = 9;
 
