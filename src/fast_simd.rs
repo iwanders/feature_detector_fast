@@ -31,7 +31,7 @@ unsafe fn pl(input: &__m256i) -> String {
     format!("{:02X?}", v)
 }
 
-const DO_PRINTS: bool = true;
+const DO_PRINTS: bool = false;
 
 #[allow(unused_macros)]
 /// Helper print macro that can be enabled or disabled.
@@ -162,23 +162,15 @@ unsafe fn determine_keypoint(
     // after the gather, we end up with the values from our circle like this:
     // v0 0 0 0 v1 0 0 0 v2 0 0 0 v3 0 0 0 | v4 0 0 0 v5 0 0 0 v6 0 0 0 v7
     let mask = _mm256_set_epi64x(
-        0, // discarded anyway
-        // on zero'th byte, we want the 0 index, second byte, index 4, third; 8th...
-        0x0c080400, 0, // discarded anyway
-        0x0c080400,
+        i64::from_ne_bytes(0x8080808080808080u64.to_ne_bytes()), // 80 for discards
+        i64::from_ne_bytes(0x808080800c080400u64.to_ne_bytes()),
+        i64::from_ne_bytes(0x8080808080808080u64.to_ne_bytes()), // 80 for discards
+        i64::from_ne_bytes(0x808080800c080400u64.to_ne_bytes()),
     );
     // we do this magic shuffle back to collapse that into
     // v0 v1 v2 v3 0000000 | v4 v5 v6 v7
-    let left_u32_per_lane = _mm256_shuffle_epi8(obtained, mask);
-
-    // After which we can extract lower and higher
-    let lower = _mm256_extract_epi32(left_u32_per_lane, 0);
-    let higher = _mm256_extract_epi32(left_u32_per_lane, 4);
-
-    // Finally, we can store that into a single array for indexing later.
-    let mut retrievable = [0u8; 16];
-    retrievable[0..4].copy_from_slice(&lower.to_le_bytes());
-    retrievable[4..8].copy_from_slice(&higher.to_le_bytes());
+    let first_half = _mm256_shuffle_epi8(obtained, mask);
+    // [00, 01, 02, 03, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 04, 05, 06, 07, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
 
     // And, in a second gather, we can get us the remaining 8 indices, exactly the same:
     let indices = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(
@@ -186,25 +178,40 @@ unsafe fn determine_keypoint(
     ));
     let lookup_base = std::mem::transmute::<_, *const i32>(&data[base_offset as usize]);
     let obtained = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
-    let left_u32_per_lane = _mm256_shuffle_epi8(obtained, mask);
-    let lower = _mm256_extract_epi32(left_u32_per_lane, 0);
-    let higher = _mm256_extract_epi32(left_u32_per_lane, 4);
 
-    // Which we can also read into retrievable. That now holds our circle pixels.
-    retrievable[8..12].copy_from_slice(&lower.to_le_bytes());
-    retrievable[12..16].copy_from_slice(&higher.to_le_bytes());
+    // Use a different mask here such that we end up with the values in different slots.
+    let mask = _mm256_set_epi64x(
+        i64::from_ne_bytes(0x808080800c080400u64.to_ne_bytes()),
+        i64::from_ne_bytes(0x8080808080808080u64.to_ne_bytes()), // zero out
+        i64::from_ne_bytes(0x808080800c080400u64.to_ne_bytes()),
+        i64::from_ne_bytes(0x8080808080808080u64.to_ne_bytes()), // zero out
+    );
+    let second_half = _mm256_shuffle_epi8(obtained, mask);
+    // [00, 00, 00, 00, 00, 00, 00, 00, 08, 09, 0A, 0B, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 0C, 0D, 0E, 0F, 00, 00, 00, 00]
 
-    // Retrievable is correct, confirmed that with some prints.
-    trace!("Values dec  {retrievable:?}");
+    // Then, we can combine the two halves
+    let circle_values = _mm256_or_si256(first_half, second_half);
+    // [00, 01, 02, 03, 00, 00, 00, 00, 08, 09, 0A, 0B, 00, 00, 00, 00, 04, 05, 06, 07, 00, 00, 00, 00, 0C, 0D, 0E, 0F, 00, 00, 00, 00]
+
+    // Now, we can perform a i32 permutate to end up with everything in the first lane and in order:
+    let idx = _mm256_set_epi64x(
+        i64::from_ne_bytes(0x0100000001u64.to_ne_bytes()),
+        i64::from_ne_bytes(0x0100000001u64.to_ne_bytes()),
+        i64::from_ne_bytes(0x0600000002u64.to_ne_bytes()),
+        i64::from_ne_bytes(0x0400000000u64.to_ne_bytes()),
+    );
+
+    let circle_values_ordered = _mm256_permutevar8x32_epi32(circle_values, idx);
+    // [00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 0A, 0B, 0C, 0D, 0E, 0F, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+
+    // Now that we have those points, we can load those back into a vector.
+    let p = _mm256_extracti128_si256(circle_values_ordered, 0);
+    trace!("Values hex  {}", pi(&p));
 
     // Definition of the paper is, let a cirle point be p and center of the circle c.
     // darker: p <= c - t
     // similar: c - t < p < c + t
     // brigher: c + t <= p
-
-    // Now that we have those points, we can load those back into a vector.
-    let p = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&retrievable[0]));
-    trace!("Values hex  {}", pi(&p));
 
     // Now, we can calculate the lower and upper bounds.
     let upper_bound = _mm_adds_epu8(m128_center, m128_threshold);
@@ -573,15 +580,14 @@ mod test {
 
     #[test]
     fn test_combine_gathers() {
-        unsafe  {
-            let data = [0u8, 1, 2, 3, 4, 5, 6, 7 , 8, 9, 10, 11, 12, 13, 14, 15];
+        unsafe {
+            let data = [0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
             let mut indices = [0u32; 16];
             for k in 0..16 {
                 indices[k] = k as u32;
             }
 
-            let indices =
-                _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&indices[0]));
+            let indices = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&indices[0]));
             // us the first 8 indices.
             const SCALE: i32 = 1;
             let lookup_base = std::mem::transmute::<_, *const i32>(&data[0]);
@@ -602,14 +608,12 @@ mod test {
 
             let lookup_base = std::mem::transmute::<_, *const i32>(&data[8]);
             let obtained_second = _mm256_i32gather_epi32(lookup_base, indices, SCALE);
-            
-
 
             let mask = _mm256_set_epi64x(
                 i64::from_ne_bytes(0x808080800c080400u64.to_ne_bytes()),
-                i64::from_ne_bytes(0x8080808080808080u64.to_ne_bytes()),  // zero out
+                i64::from_ne_bytes(0x8080808080808080u64.to_ne_bytes()), // zero out
                 i64::from_ne_bytes(0x808080800c080400u64.to_ne_bytes()),
-                i64::from_ne_bytes(0x8080808080808080u64.to_ne_bytes()),  // zero out
+                i64::from_ne_bytes(0x8080808080808080u64.to_ne_bytes()), // zero out
             );
             let second_half = _mm256_shuffle_epi8(obtained_second, mask);
 
@@ -622,13 +626,8 @@ mod test {
             println!("             {}", pl(&combined));
 
             // Now, we're a single permutate away from getting what we want.
-            
+
             // v0 v1 v2 v3 0 0 0 0 v8 v9 v10 v11  0 0 0 0 v4 v5 v6 v7 0 0 0 0 v12 v13 v14 v15 0 0 0 0
-            // FOR j := 0 to 7
-                    // i := j*32
-                    // id := idx[i+2:i]*32
-                    // dst[i+31:i] := a[id+31:id]
-            // ENDFOR
             // Needs to become
             // v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 0000000
             let idx = _mm256_set_epi64x(
