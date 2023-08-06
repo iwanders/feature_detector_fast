@@ -140,6 +140,7 @@ pub mod fast_detector16 {
         let m128_center = [base_v as u8; 16];
         let m128_center =
             _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_center[0]));
+        trace!("m128_center  {}", pi(&m128_center));
 
         // pub unsafe fn _mm_loadu_si64(mem_addr: *const u8) -> __m128i
 
@@ -216,8 +217,8 @@ pub mod fast_detector16 {
         trace!("Values hex  {}", pi(&p));
 
         // Now, we can calculate the lower and upper bounds.
-        let upper_bound = _mm_adds_epi8(m128_center, m128_threshold);
-        let lower_bound = _mm_subs_epi8(m128_center, m128_threshold);
+        let upper_bound = _mm_adds_epu8(m128_center, m128_threshold);
+        let lower_bound = _mm_subs_epu8(m128_center, m128_threshold);
         trace!("upper_bound {}", pi(&upper_bound));
         trace!("lower_bound {}", pi(&lower_bound));
 
@@ -239,53 +240,24 @@ pub mod fast_detector16 {
         );
         trace!("above_u8    {above_u8:?}");
         trace!("below_u8    {below_u8:?}");
-
-        let delta_f = |index: usize| {
-            let pixel_v = data[(base_offset + circle_offset[index]) as usize];
-            let delta = base_v as i16 - pixel_v as i16;
-            delta
-        };
-        let p_f = |index: usize| data[(base_offset + circle_offset[index]) as usize];
-
-        const COUNT: usize = circle().len() as usize;
-        let mut neg = [false; COUNT];
-        let mut pos = [false; COUNT];
-        for i in 0..COUNT {
-            let d = delta_f(i);
-            let a = d.abs();
-            neg[i] = d < 0 && a > t as i16;
-            pos[i] = d > 0 && a > t as i16;
-        }
-
-        if DO_PRINTS && false {
-            for i in 0..COUNT {
-                print!("  {} ", delta_f(i));
-            }
-            println!("  t: {t}");
-            for i in 0..COUNT {
-                print!("  {} ", p_f(i));
-            }
-            println!("  pixels");
-            println!("  neg: {neg:?}");
-            println!("  pos: {pos:?}");
-        }
+        const COUNT: usize = 16;
 
         // There's probably a way more efficient way of doing this rotation.
         for s in 0..COUNT {
-            let n = neg
+            let n = below_u8
                 .iter()
                 .cycle()
                 .skip(s)
                 .take(COUNT)
-                .take_while(|t| **t)
+                .take_while(|t| **t != 0)
                 .count()
                 >= consecutive as usize;
-            let p = pos
+            let p = above_u8
                 .iter()
                 .cycle()
                 .skip(s)
                 .take(COUNT)
-                .take_while(|t| **t)
+                .take_while(|t| **t != 0)
                 .count()
                 >= consecutive as usize;
 
@@ -375,8 +347,8 @@ pub mod fast_detector16 {
 
                     // Ok, great, we have the data on hand, now for each byte, we can
                     // Now, we can calculate the lower and upper bounds.
-                    let upper_bound = _mm_adds_epi8(c, m128_threshold);
-                    let lower_bound = _mm_subs_epi8(c, m128_threshold);
+                    let upper_bound = _mm_adds_epu8(c, m128_threshold);
+                    let lower_bound = _mm_subs_epu8(c, m128_threshold);
                     trace!("");
                     trace!("upbnd: {}", pi(&upper_bound));
                     trace!("lrbnd: {}", pi(&lower_bound));
@@ -574,7 +546,7 @@ mod test {
                 count_minimum,
             )
         };
-        return;
+
         let detected = fast_detector16::detect(&img, 16, 9);
         assert_eq!(
             detected.contains(&FastPoint {
@@ -583,46 +555,5 @@ mod test {
             }),
             true
         );
-        /*
-            Definition of the paper is, let a cirle point be p and center of the circle c.
-                darker: p <= c - t
-                similar: c - t < p < c + t
-                brigher: c + t <= p
-
-            center = 17
-            t = 16
-
-            only 37 and 37 exceed center + t;
-
-            Darker?
-            north: 37 <= (17 - 16): False
-            east:  37 <= (17 - 16): False
-            south: 14 <= (17 - 16): False
-            west: 15 <= (17 - 16): False
-
-            Lighter:
-            north: (17 + 16) <= 37: True
-            east: (17 + 16) <= 37: True
-            south: (17 + 16) <= 14: False
-            west: (17 + 16) <= 15: False
-
-            Only 2/4 cardinal points match the requirements, as such, with a minimum of 9 points
-            this point cannot possibly be a keypoint.
-
-            This should not be a point. Yet OpenCV classifies it as a point.
-
-            However:
-            Values dec  [37, 37, 39, 39, 37, 42, 43, 16, 14, 13, 15, 16, 15, 38, 37, 38]
-            Values hex  [25, 25, 27, 27, 25, 2A, 2B, 10, 0E, 0D, 0F, 10, 0F, 26, 25, 26]
-            upper_bound [21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21]
-            lower_bound [01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01]
-            is_above    [FF, FF, FF, FF, FF, FF, FF, 00, 00, 00, 00, 00, 00, FF, FF, FF]
-            is_below    [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
-            above_u8    [255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 255, 255, 255]
-            below_u8    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-            [FF, FF, FF, FF, FF, FF, FF, 00, 00, 00, 00, 00, 00, FF, FF, FF]
-             1   2   3   4   5   6   7                           8    9  10
-            // It should be a point, even though there's only two corners with values.
-        */
     }
 }
