@@ -228,14 +228,22 @@ pub mod fast_detector16 {
         trace!("is_below    {}", pi(&is_below));
 
         // void _mm256_storeu_si256 (__m256i * mem_addr, __m256i a)
-        let mut above_u8 = [0u8; 16];
+        let mut above_u8 = [0u8; 32];
         _mm_storeu_si128(
             std::mem::transmute::<_, *mut __m128i>(&above_u8[0]),
             is_above,
         );
-        let mut below_u8 = [0u8; 16];
+        _mm_storeu_si128(
+            std::mem::transmute::<_, *mut __m128i>(&above_u8[16]),
+            is_above,
+        );
+        let mut below_u8 = [0u8; 32];
         _mm_storeu_si128(
             std::mem::transmute::<_, *mut __m128i>(&below_u8[0]),
+            is_below,
+        );
+        _mm_storeu_si128(
+            std::mem::transmute::<_, *mut __m128i>(&below_u8[16]),
             is_below,
         );
         trace!("above_u8    {above_u8:?}");
@@ -243,29 +251,36 @@ pub mod fast_detector16 {
         const COUNT: usize = 16;
 
         // There's probably a way more efficient way of doing this rotation.
-        for s in 0..COUNT {
-            let n = below_u8
-                .iter()
-                .cycle()
-                .skip(s)
-                .take(COUNT)
-                .take_while(|t| **t != 0)
-                .count()
-                >= consecutive as usize;
-            let p = above_u8
-                .iter()
-                .cycle()
-                .skip(s)
-                .take(COUNT)
-                .take_while(|t| **t != 0)
-                .count()
-                >= consecutive as usize;
 
-            if n || p {
-                if DO_PRINTS {
-                    println!("  Succceed by p: {p}, n: {n} at s {s}");
+        // Next, we need to figure out if there is a consecutive sequence of above or below
+        // in the ring of 16.
+
+        // Working with that ring however, is tricky with the wraparound.
+        // 0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15
+        //                                                  0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15
+        // We can solve that problem by concatenating the vector again at the end, and iterating
+        // over the section that is (16 + consecutive)
+        let mut found_consecutive = 0;
+        for k in 0..(COUNT + consecutive as usize) {
+            if (above_u8[k] != 0) {
+                found_consecutive += 1;
+                if found_consecutive >= consecutive {
+                    return Some(FastPoint { x: xx, y });
                 }
-                return Some(FastPoint { x: xx, y });
+            } else {
+                found_consecutive = 0;
+            }
+        }
+
+        let mut found_consecutive = 0;
+        for k in 0..(COUNT + consecutive as usize) {
+            if (below_u8[k] != 0) {
+                found_consecutive += 1;
+                if found_consecutive >= consecutive {
+                    return Some(FastPoint { x: xx, y });
+                }
+            } else {
+                found_consecutive = 0;
             }
         }
         None
@@ -523,6 +538,19 @@ mod test {
 
     #[test]
     fn test_47_115_hand() {
+        /*
+            Determine keypoint at (64, 64)
+            m128_center  [11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11]
+            Values dec  [37, 37, 39, 39, 37, 42, 43, 16, 14, 13, 15, 16, 15, 38, 37, 38]
+            Values hex  [25, 25, 27, 27, 25, 2A, 2B, 10, 0E, 0D, 0F, 10, 0F, 26, 25, 26]
+            upper_bound [21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21]
+            lower_bound [01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01]
+            is_above    [FF, FF, FF, FF, FF, FF, FF, 00, 00, 00, 00, 00, 00, FF, FF, FF]
+            is_below    [00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00]
+            above_u8    [255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 255, 255, 255]
+            below_u8    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        */
         let img = create_sample_image(
             17,
             &[
@@ -530,6 +558,7 @@ mod test {
                 37, 37, 39, 39, 37, 42, 43, 16, 14, 13, 15, 16, 15, 38, 37, 38,
             ],
         );
+        let _ = img.save("/tmp/test_47_115_hand.png").expect("should be able to write image");
         let threshold = 16;
         let count_minimum = 9;
 
