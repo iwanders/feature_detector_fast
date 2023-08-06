@@ -118,6 +118,13 @@ pub mod fast_detector16 {
         )
     }
 
+    unsafe fn _mm256_cmpgt_epu8(a: __m256i, b: __m256i) -> __m256i {
+        _mm256_cmpgt_epi8(
+            _mm256_xor_si256(a, _mm256_set1_epi8(-128)), // range-shift to unsigned
+            _mm256_xor_si256(b, _mm256_set1_epi8(-128)),
+        )
+    }
+
     #[inline]
     pub unsafe fn determine_keypoint(
         data: &[u8],
@@ -310,10 +317,11 @@ pub mod fast_detector16 {
         // calculate the circle offsets for the data once.
         let circle_offset = calculate_offsets(width);
 
+        const STEP_SIZE: usize = 32;
         unsafe {
-            let m128_threshold = [t as u8; 16];
+            let m128_threshold = [t as u8; STEP_SIZE];
             let m128_threshold =
-                _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_threshold[0]));
+                _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&m128_threshold[0]));
 
             for y in 3..(height - 3) {
                 // we should probably do something smarter than this.
@@ -332,7 +340,6 @@ pub mod fast_detector16 {
                 //  n >= 9 : 2/4
 
                 // If that is the case, and only then should we do real work.
-                const STEP_SIZE: usize = 16;
 
                 let x_chunks = (width - 3 - 3) / STEP_SIZE as u32;
                 for x_step in 0..x_chunks {
@@ -344,67 +351,67 @@ pub mod fast_detector16 {
                     // __m256i = 32 bytes;
                     let base_offset = (y * width + x) as i32;
 
-                    // Obtain 16 centers.
-                    let c = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(
+                    // Obtain 32 centers.
+                    let c = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(
                         &data[base_offset as usize],
                     ));
-                    trace!("c    : {}", pi(&c));
-                    trace!("t    : {}", pi(&m128_threshold));
+                    trace!("c    : {}", pl(&c));
+                    trace!("t    : {}", pl(&m128_threshold));
 
                     // Obtain 16 of the cardinal directions.
-                    let north = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(
+                    let north = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(
                         &data[(base_offset + circle_offset[NORTH]) as usize],
                     ));
-                    let east = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(
+                    let east = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(
                         &data[(base_offset + circle_offset[EAST]) as usize],
                     ));
-                    let south = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(
+                    let south = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(
                         &data[(base_offset + circle_offset[SOUTH]) as usize],
                     ));
-                    let west = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(
+                    let west = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(
                         &data[(base_offset + circle_offset[WEST]) as usize],
                     ));
                     trace!("");
-                    trace!("north: {}", pi(&north));
-                    trace!("east : {}", pi(&east));
-                    trace!("south: {}", pi(&south));
-                    trace!("west:  {}", pi(&west));
+                    trace!("north: {}", pl(&north));
+                    trace!("east : {}", pl(&east));
+                    trace!("south: {}", pl(&south));
+                    trace!("west:  {}", pl(&west));
 
                     // Ok, great, we have the data on hand, now for each byte, we can
                     // Now, we can calculate the lower and upper bounds.
-                    let upper_bound = _mm_adds_epu8(c, m128_threshold);
-                    let lower_bound = _mm_subs_epu8(c, m128_threshold);
+                    let upper_bound = _mm256_adds_epu8(c, m128_threshold);
+                    let lower_bound = _mm256_subs_epu8(c, m128_threshold);
                     trace!("");
-                    trace!("upbnd: {}", pi(&upper_bound));
-                    trace!("lrbnd: {}", pi(&lower_bound));
+                    trace!("upbnd: {}", pl(&upper_bound));
+                    trace!("lrbnd: {}", pl(&lower_bound));
 
                     // Now, we just need to determine if 3 out of 4 of the cardinal directions are above or below.
                     // These masks return 0xFF if true, x00 if false.
                     // _mm_cmpgt_epi8: dst[i+7:i] := ( a[i+7:i] > b[i+7:i] ) ? 0xFF : 0
 
-                    let north_above = _mm_cmpgt_epu8(north, upper_bound);
-                    let east_above = _mm_cmpgt_epu8(east, upper_bound);
-                    let south_above = _mm_cmpgt_epu8(south, upper_bound);
-                    let west_above = _mm_cmpgt_epu8(west, upper_bound);
+                    let north_above = _mm256_cmpgt_epu8(north, upper_bound);
+                    let east_above = _mm256_cmpgt_epu8(east, upper_bound);
+                    let south_above = _mm256_cmpgt_epu8(south, upper_bound);
+                    let west_above = _mm256_cmpgt_epu8(west, upper_bound);
                     trace!("");
-                    trace!("nt_ab: {}", pi(&north_above));
-                    trace!("ea_ab: {}", pi(&east_above));
-                    trace!("st_ab: {}", pi(&south_above));
-                    trace!("we_ab: {}", pi(&west_above));
+                    trace!("nt_ab: {}", pl(&north_above));
+                    trace!("ea_ab: {}", pl(&east_above));
+                    trace!("st_ab: {}", pl(&south_above));
+                    trace!("we_ab: {}", pl(&west_above));
 
-                    let north_below = _mm_cmpgt_epu8(lower_bound, north);
-                    let east_below = _mm_cmpgt_epu8(lower_bound, east);
-                    let south_below = _mm_cmpgt_epu8(lower_bound, south);
-                    let west_below = _mm_cmpgt_epu8(lower_bound, west);
+                    let north_below = _mm256_cmpgt_epu8(lower_bound, north);
+                    let east_below = _mm256_cmpgt_epu8(lower_bound, east);
+                    let south_below = _mm256_cmpgt_epu8(lower_bound, south);
+                    let west_below = _mm256_cmpgt_epu8(lower_bound, west);
                     trace!("");
-                    trace!("nt_bl: {}", pi(&north_below));
-                    trace!("ea_bl: {}", pi(&east_below));
-                    trace!("st_bl: {}", pi(&south_below));
-                    trace!("we_bl: {}", pi(&west_below));
+                    trace!("nt_bl: {}", pl(&north_below));
+                    trace!("ea_bl: {}", pl(&east_below));
+                    trace!("st_bl: {}", pl(&south_below));
+                    trace!("we_bl: {}", pl(&west_below));
 
                     trace!("");
 
-                    let check_mask = if consecutive < 12 && consecutive >= 9 {
+                    let check_mask = if consecutive < 12 && consecutive >= 9  {
                         // Now, we need a way to determine 2 out of 4.
                         //               && south && west
                         // north &&               && west
@@ -413,32 +420,32 @@ pub mod fast_detector16 {
 
                         // That has only four options, why not just write it out?
                         // That has only four options, why not just write it out?
-                        let above_0 = _mm_and_si128(south_above, west_above);
-                        let above_1 = _mm_and_si128(north_above, west_above);
-                        let above_2 = _mm_and_si128(north_above, east_above);
-                        let above_3 = _mm_and_si128(east_above, south_above);
-                        let above_2_found = _mm_or_si128(
-                            _mm_or_si128(above_0, above_1),
-                            _mm_or_si128(above_2, above_3),
+                        let above_0 = _mm256_and_si256(south_above, west_above);
+                        let above_1 = _mm256_and_si256(north_above, west_above);
+                        let above_2 = _mm256_and_si256(north_above, east_above);
+                        let above_3 = _mm256_and_si256(east_above, south_above);
+                        let above_2_found = _mm256_or_si256(
+                            _mm256_or_si256(above_0, above_1),
+                            _mm256_or_si256(above_2, above_3),
                         );
-                        trace!("2 gtf: {}", pi(&above_2_found));
+                        trace!("2 gtf: {}", pl(&above_2_found));
 
                         // And the same for below.
-                        let below_0 = _mm_and_si128(south_below, west_below);
-                        let below_1 = _mm_and_si128(north_below, west_below);
-                        let below_2 = _mm_and_si128(north_below, east_below);
-                        let below_3 = _mm_and_si128(east_below, south_below);
-                        let below_2_found = _mm_or_si128(
-                            _mm_or_si128(below_0, below_1),
-                            _mm_or_si128(below_2, below_3),
+                        let below_0 = _mm256_and_si256(south_below, west_below);
+                        let below_1 = _mm256_and_si256(north_below, west_below);
+                        let below_2 = _mm256_and_si256(north_below, east_below);
+                        let below_3 = _mm256_and_si256(east_below, south_below);
+                        let below_2_found = _mm256_or_si256(
+                            _mm256_or_si256(below_0, below_1),
+                            _mm256_or_si256(below_2, below_3),
                         );
-                        trace!("2 ltf: {}", pi(&below_2_found));
+                        trace!("2 ltf: {}", pl(&below_2_found));
 
-                        let found_3 = _mm_or_si128(above_2_found, below_2_found);
+                        let found_3 = _mm256_or_si256(above_2_found, below_2_found);
 
                         let mut mask = [0u8; STEP_SIZE];
-                        _mm_storeu_si128(
-                            std::mem::transmute::<_, *mut __m128i>(&mut mask[0]),
+                        _mm256_storeu_si256(
+                            std::mem::transmute::<_, *mut __m256i>(&mut mask[0]),
                             found_3,
                         );
                         mask
@@ -451,39 +458,39 @@ pub mod fast_detector16 {
 
                         // That has only four options, why not just write it out?
                         let above_0 =
-                            _mm_and_si128(_mm_and_si128(east_above, south_above), west_above);
+                            _mm256_and_si256(_mm256_and_si256(east_above, south_above), west_above);
                         let above_1 =
-                            _mm_and_si128(_mm_and_si128(north_above, south_above), west_above);
+                            _mm256_and_si256(_mm256_and_si256(north_above, south_above), west_above);
                         let above_2 =
-                            _mm_and_si128(_mm_and_si128(north_above, east_above), west_above);
+                            _mm256_and_si256(_mm256_and_si256(north_above, east_above), west_above);
                         let above_3 =
-                            _mm_and_si128(_mm_and_si128(north_above, east_above), south_above);
-                        let above_3_found = _mm_or_si128(
-                            _mm_or_si128(above_0, above_1),
-                            _mm_or_si128(above_2, above_3),
+                            _mm256_and_si256(_mm256_and_si256(north_above, east_above), south_above);
+                        let above_3_found = _mm256_or_si256(
+                            _mm256_or_si256(above_0, above_1),
+                            _mm256_or_si256(above_2, above_3),
                         );
-                        trace!("3 gtf: {}", pi(&above_3_found));
+                        trace!("3 gtf: {}", pl(&above_3_found));
 
                         // And the same for below.
                         let below_0 =
-                            _mm_and_si128(_mm_and_si128(east_below, south_below), west_below);
+                            _mm256_and_si256(_mm256_and_si256(east_below, south_below), west_below);
                         let below_1 =
-                            _mm_and_si128(_mm_and_si128(north_below, south_below), west_below);
+                            _mm256_and_si256(_mm256_and_si256(north_below, south_below), west_below);
                         let below_2 =
-                            _mm_and_si128(_mm_and_si128(north_below, east_below), west_below);
+                            _mm256_and_si256(_mm256_and_si256(north_below, east_below), west_below);
                         let below_3 =
-                            _mm_and_si128(_mm_and_si128(north_below, east_below), south_below);
-                        let below_3_found = _mm_or_si128(
-                            _mm_or_si128(below_0, below_1),
-                            _mm_or_si128(below_2, below_3),
+                            _mm256_and_si256(_mm256_and_si256(north_below, east_below), south_below);
+                        let below_3_found = _mm256_or_si256(
+                            _mm256_or_si256(below_0, below_1),
+                            _mm256_or_si256(below_2, below_3),
                         );
-                        trace!("3 ltf: {}", pi(&below_3_found));
+                        trace!("3 ltf: {}", pl(&below_3_found));
 
-                        let found_3 = _mm_or_si128(above_3_found, below_3_found);
+                        let found_3 = _mm256_or_si256(above_3_found, below_3_found);
 
                         let mut mask = [0u8; STEP_SIZE];
-                        _mm_storeu_si128(
-                            std::mem::transmute::<_, *mut __m128i>(&mut mask[0]),
+                        _mm256_storeu_si256(
+                            std::mem::transmute::<_, *mut __m256i>(&mut mask[0]),
                             found_3,
                         );
                         mask
