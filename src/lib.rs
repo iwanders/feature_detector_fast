@@ -7,6 +7,15 @@ pub mod util;
 
 use image;
 
+fn hash_result(points: &[fast::FastPoint]) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hash;
+    use std::hash::Hasher;
+    let mut s = DefaultHasher::new();
+    points.hash(&mut s);
+    s.finish()
+}
+
 pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let input_image_file = std::env::args().nth(1).expect("no image file specified");
 
@@ -25,7 +34,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let config = fast::FastConfig {
         threshold: 16,
         count: 9,
-        non_maximal_supression: false,
+        non_maximal_supression: true,
     };
 
     let start = std::time::Instant::now();
@@ -39,6 +48,8 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     if keypoints_simd != keypoints {
         println!("Keypoints not identical");
     }
+
+    let hash_keypoints = hash_result(&keypoints);
 
     println!("Found {} keypoints", keypoints.len());
     // keypoints = keypoints_simd;
@@ -59,6 +70,11 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         util::draw_plus_sized(&mut rgb_owned, (kp.x, kp.y), util::RED, 1);
     }
     let _ = rgb_owned.save("/tmp/with_rust.png");
+
+    println!("Hash of keypoints: 0x{hash_keypoints:x}");
+    if hash_keypoints != 0x8bf9cd0f9ca9ebec {
+        panic!("Not hash equal");
+    }
 
     Ok(())
 }

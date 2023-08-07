@@ -1,28 +1,29 @@
+/*!
+
+The original author's source code can be found here:
+    <https://web.archive.org/web/20070708064606/http://mi.eng.cam.ac.uk/~er258/work/fast.html>
+
+It looks like the decision tree as described in rosten2006.pdf "LNCS 3951 - Machine Learning for High-Speed Corner Detection" by Rosten and Drummond.
+This reference implementation's nonmax suppression can have three keypoints adjecent on a single row, which violates the 9x9 non max suppression guarantees?
+
+
+The opencv (version 3.2) implementation does not match the original author's decision tree, because it is a raw implementation of the algorithm instead of a trained decision tree.
+
+OpenCV's nonmax score function appears to be the threshold for which the point would still be a keypoint.
+    Which the paper states a lot of pixels will share the value, they propose an alternative.
+    Enabling VERIFY_CORNERS in the OpenCV code makes the asserts fail.
+
+OpenCV enshrines 9 consecutive pixels out of the 16 all throughout the code base, eliminating the possibility of using n >= 12 for which there is a 3 / 4 cardinal direction check.
+
+
+In this file, I implemented (very naively) logic that is identical to opencv:
+    - The detect() without non maximal supression here matches opencv for a count of 9.
+    - The non_max_supression_opencv method matches opencv's nonmax suppression for a count of 9.
+
+*/
 use image::{GenericImageView, Luma};
 
-/*
-
-The original implementation from https://web.archive.org/web/20070708064606/http://mi.eng.cam.ac.uk/~er258/work/fast.html does not match the output of opencv.
-
-The fast_detector16::detect() without non maximal supression here matches opencv for a count of 9.
-
-The reference non-max implementation can can have three keypoints adjecent on a single row. Which
-should be impossible?
-
-OpenCV's nonmax score function is threshold for which the point would still be a keypoint.
-    Which the paper states a lot of pixels will share the value.
-    And enabling VERIFY_CORNERS make the asserts fail.
-    So they use a score function the authors don't recommend, and the asserts fail if enabled.
-
-So, basically:
-    - OpenCV doesn't match original author's implementation.
-    - OpenCV implements a score function that is not recommended, and internal asserts fail,
-      indicating that it doesn't not find the correct value to which the threshold could be raised
-      for that point to still be a keypoint.
-    - The rest of the corner detection seems to be correct, but it is only implemented for n = 0
-*/
-
-#[derive(Copy, Debug, Clone, Eq, PartialEq)]
+#[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
 pub struct FastPoint {
     pub x: u32,
     pub y: u32,
@@ -172,42 +173,47 @@ pub fn detect(
     r
 }
 
-/// This is different from opencv, and VERY inefficient.
-pub fn non_max_supression(
+/// This is identical to opencv, very inefficient though.
+pub fn non_max_supression_opencv(
     image: &image::GrayImage,
     keypoints: &[FastPoint],
     threshold: u8,
 ) -> Vec<FastPoint> {
     // Very inefficient.
     let mut res = vec![];
-    const COUNT: usize = circle().len() as usize;
 
     let score = |x, y| {
-        let t = threshold as i16;
-        // Eq 8 of rosten2006, LNCS3951.
-        let base_v = image.get_pixel(x, y)[0];
-        let mut sum_bright = 0;
-        let mut sum_dark = 0;
-        // let mut c_bright = 0;
-        // let mut c_dark = 0;
-        for i in 0..COUNT {
-            let offset = point(i as u8);
-            let t_x = (x as i32 + offset.0) as u32;
-            let t_y = (y as i32 + offset.1) as u32;
-            let p = base_v as i16;
-            let pixel_v = image.get_pixel(t_x, t_y)[0] as i16;
+        // Definition of the paper is, let a cirle point be p and center of the circle c.
+        //     darker: p <= c - t
+        //     similar: c - t < p < c + t
+        //     brigher: c + t <= p
+        //
+        let base_v = image.get_pixel(x, y)[0] as i16;
 
-            if pixel_v >= (p + t) {
-                sum_bright += (pixel_v - p).abs() - t;
-                // c_bright += 1;
-            }
-            if pixel_v <= (p - t) {
-                sum_dark += (p - pixel_v).abs() - t;
-                // c_dark += 1;
-            }
+        // Opencv has hardcoded 9/16, so their wrap-around ringbuffer is 16 + 9 = 25 long.
+        let mut difference = [0i16; 25];
+        let offsets = circle();
+        for i in 0..difference.len() {
+            let pos = circle()[i % offsets.len()];
+            let circle_p = image.get_pixel((x as i32 + pos.0) as u32, (y as i32 + pos.1) as u32)[0] as i16;
+            difference[i] = base_v as i16 - circle_p;
         }
-        // / c_bright.max(c_dark)
-        sum_bright.max(sum_dark)
+
+        // OpenCV calculates the highest / lowest extremum across any consecutive block of 9 pixels.
+        let mut extreme_highest = std::i16::MIN;
+        for k in 0..16 {
+            let min_value_of_9 = *difference[k..(k + 9)].iter().min().unwrap();
+            extreme_highest = extreme_highest.max(min_value_of_9);
+        }
+
+        let mut extreme_lowest = std::i16::MAX;
+        for k in 0..16 {
+            let max_value_of_9 = *difference[k..(k + 9)].iter().max().unwrap();
+            extreme_lowest = extreme_lowest.min(max_value_of_9);
+        }
+
+        // Take the absolute minimum of both to determine the max 't' for which this is a point.
+        extreme_highest.abs().min(extreme_lowest.abs())
     };
 
     'kpiter: for kp in keypoints.iter() {
@@ -257,7 +263,7 @@ pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
     let r = detect(img, config.threshold, config.count);
 
     if config.non_maximal_supression {
-        return non_max_supression(img, &r, config.threshold);
+        return non_max_supression_opencv(img, &r, config.threshold);
     }
     r
 }
