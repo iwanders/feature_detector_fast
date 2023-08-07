@@ -1,6 +1,6 @@
 pub mod fast;
 
-#[cfg(all(any(target_arch = "x86_64"), target_feature = "avx2"))]
+#[cfg(any(doc, all(any(target_arch = "x86_64"), target_feature = "avx2")))]
 pub mod fast_simd;
 
 pub mod util;
@@ -19,7 +19,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let luma_view = image::DynamicImage::ImageRgb8(orig_image.clone()).to_luma8();
     let _ = luma_view.save("/tmp/rust_grey.png")?;
 
-    let circle_image = fast::fast_detector16::make_circle_image();
+    let circle_image = fast::make_circle_image();
     let _ = circle_image.save("/tmp/circle_image.png")?;
 
     let config = fast::FastConfig {
@@ -39,6 +39,8 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     if keypoints_simd != keypoints {
         println!("Keypoints not identical");
     }
+
+    println!("Found {} keypoints", keypoints.len());
     // keypoints = keypoints_simd;
 
     // let keypoints = if kp.is_some() {vec![kp.unwrap()]} else {vec![]};
