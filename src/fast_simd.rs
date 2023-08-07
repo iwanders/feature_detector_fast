@@ -659,6 +659,109 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
     r
 }
 
+/// This is a vectorized equivalent to [`crate::opencv_compat::non_max_suppression_opencv_score`].
+pub fn keypoint_score_max_threshold(base_v: u8, pixels: __m128i, consecutive: u8) -> u16 {
+    unsafe {
+        // duplicate that to both lanes.
+        let pixels = _mm256_set_m128i(_mm_set1_epi64x(0), pixels); // combine two 128 into 256
+
+        let centers = _mm256_set1_epi16 (base_v as i16);
+
+        // Perform a permutate to go from:
+        // v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 0 0 0 0 0 0 0 0 
+        // to
+        // v0 v1 v2 v3 v4 v5 v6 v7 0 0 0 0 0 0 0 0 ... v8 v9 v10 v11 v12 v13 v14 v15 0 0 0 0 0 0 0 0 
+        //
+        // Now, we can perform a i32 permutate to end up with everything in the first lane and in order:
+        let idx = _mm256_set_epi64x(
+            i64::from_ne_bytes(0x07_00000007u64.to_ne_bytes()),
+            i64::from_ne_bytes(0x03_00000002u64.to_ne_bytes()),
+            i64::from_ne_bytes(0x07_00000007u64.to_ne_bytes()),
+            i64::from_ne_bytes(0x01_00000000u64.to_ne_bytes()),
+        );
+
+
+        let pixels_two_lanes = _mm256_permutevar8x32_epi32(pixels, idx);
+        // So now we have 8 pixels in the left, and 8 pixels in the right lane.
+
+        // Next, we unpack that from:
+        // v0 v1 v2 v3 v4 v5 v6 v7 0 0 0 0 0 0 0 0
+        // to
+        // v0 0  v1 0 v2 0 v3 0  v4 0 v5 0 v6 0 v7 0
+        let zeros = _mm256_set1_epi64x(0);
+        let as_i16 = _mm256_unpacklo_epi8(pixels_two_lanes, zeros);
+        // So now we have an mm256 vector with u16 / i16 values.
+
+
+        // Calculate the difference vector, but offset centers by 512 to stay all positive.
+        let difference_vector_plus_512 = _mm256_sub_epi16(_mm256_add_epi16(centers, _mm256_set1_epi16(512)), as_i16);
+        // Make that mutable, we'll rotate it as we go along.
+        let mut difference_vector = difference_vector_plus_512;
+
+        // Next up, create a mask of 'consecutive' long.
+        let mut consec_mask = [0u16; 16];
+        for i in 0..consecutive {
+            consec_mask[i as usize] = 0xffff;
+        }
+        let consec_mask = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&consec_mask[0]));
+        let and_not_mask = _mm256_andnot_si256(consec_mask, _mm256_set1_epi8(-1));
+        
+
+        // Allocate vectors to hold the min and max value found in each 'consecutive' block.
+        let mut min_values = [0x0u16; 16];
+        let mut max_values = [0xFFFFu16; 16];
+
+        // Iterate over all 16 possible rotations.
+        for k in 0..16 {
+            // Calculate the minimum in this sequence.
+            {
+                let masked_seq = _mm256_and_si256 (difference_vector, consec_mask);
+                let masked_rem_max = _mm256_or_si256(masked_seq, and_not_mask);
+
+                // Retrieve the minimum u16 in the vector and store that.
+                let calculated_min = _mm256_minpos_epu16(masked_rem_max);
+                min_values[k] = calculated_min;
+            }
+
+            // Calculate the maximum in this sequence.
+            {
+                // We only have min _mm256_minpos_epu16. so to do the max, we'll need to subtract diff
+                // from a large enough value.
+                let difference_vector_from_top = _mm256_sub_epi16(_mm256_set1_epi16(-1), difference_vector);
+                let masked_seq = _mm256_and_si256 (difference_vector_from_top, consec_mask);
+                let masked_rem_max = _mm256_or_si256(masked_seq, and_not_mask);
+
+                // Retrieve the minimum u16 in the vector and store that.
+                let calculated_max = _mm256_minpos_epu16(masked_rem_max);
+                max_values[k] = calculated_max;
+            }
+
+            // Then, rotate the vector.
+            difference_vector = _mm256_rotate_across_2(difference_vector);
+        }
+
+
+        // Now, we need a max operation.
+        let min_values_vector = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&min_values[0]));
+        let min_values_from_top = _mm256_sub_epi16(_mm256_set1_epi16(1024), min_values_vector);
+        let lowest_min_values = _mm256_minpos_epu16(min_values_from_top);
+        // And finally translate this back to a signed value.
+        let extreme_highest = 1024 - lowest_min_values as i16  - 512;
+
+        // And our min operation.
+        let max_values_vector = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&max_values[0]));
+        let max_values_from_top = _mm256_sub_epi16(_mm256_set1_epi16(1024), max_values_vector);
+        let lowest_max_values = _mm256_minpos_epu16(max_values_from_top);
+        // And finally translate this back to a signed value.
+        let extreme_lowest = (lowest_max_values  - (1024 + 512 + 1)) as i16;
+
+        // Take the absolute minimum of both to determine the max 't' for which this is a point.
+        let res = extreme_highest.abs().min(extreme_lowest.abs()) as u16;
+
+        res
+    }
+}
+
 pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
     if config.non_maximal_supression {
         detect::<true>(img, config.threshold, config.count)
@@ -703,14 +806,15 @@ mod test {
     }
 
 
-    pub fn zzz(image: &image::GrayImage, (x, y): (u32, u32)) -> u16 {
+
+    fn opencv_nonmax_test_wrapper(image: &image::GrayImage, (x, y): (u32, u32)) -> u16 {
         unsafe {
             // Definition of the paper is, let a cirle point be p and center of the circle c.
             //     darker: p <= c - t
             //     similar: c - t < p < c + t
             //     brigher: c + t <= p
             //
-            let base_v = image.get_pixel(x, y)[0] as i16;
+            let base_v = image.get_pixel(x, y)[0];
 
             let mut points = [0 as u8; 16];
             let offsets = circle();
@@ -722,105 +826,7 @@ mod test {
 
             // First, collect the pixels into a vector.
             let pixels = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&points[0]));
-            // duplicate that to both lanes.
-            let pixels = _mm256_set_m128i(_mm_set1_epi64x(0), pixels); // combine two 128 into 256
-
-            let centers = _mm256_set1_epi16 (base_v);
-
-            // Perform a permutate to go from:
-            // v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 0 0 0 0 0 0 0 0 
-            // to
-            // v0 v1 v2 v3 v4 v5 v6 v7 0 0 0 0 0 0 0 0 ... v8 v9 v10 v11 v12 v13 v14 v15 0 0 0 0 0 0 0 0 
-            //
-            // Now, we can perform a i32 permutate to end up with everything in the first lane and in order:
-            let idx = _mm256_set_epi64x(
-                i64::from_ne_bytes(0x07_00000007u64.to_ne_bytes()),
-                i64::from_ne_bytes(0x03_00000002u64.to_ne_bytes()),
-                i64::from_ne_bytes(0x07_00000007u64.to_ne_bytes()),
-                i64::from_ne_bytes(0x01_00000000u64.to_ne_bytes()),
-            );
-
-
-            let pixels_two_lanes = _mm256_permutevar8x32_epi32(pixels, idx);
-            // So now we have 8 pixels in the left, and 8 pixels in the right lane.
-
-            // Next, we unpack that from:
-            // v0 v1 v2 v3 v4 v5 v6 v7 0 0 0 0 0 0 0 0
-            // to
-            // v0 0  v1 0 v2 0 v3 0  v4 0 v5 0 v6 0 v7 0
-            let zeros = _mm256_set1_epi64x(0);
-            let as_i16 = _mm256_unpacklo_epi8(pixels_two_lanes, zeros);
-            // So now we have an mm256 vector with u16 / i16 values.
-
-
-            // Calculate the difference vector, but offset centers by 512 to stay all positive.
-            let difference_vector_plus_512 = _mm256_sub_epi16(_mm256_add_epi16(centers, _mm256_set1_epi16(512)), as_i16);
-            // Make that mutable, we'll rotate it as we go along.
-            let mut difference_vector = difference_vector_plus_512;
-
-            // Next up, create a mask of 'consecutive' long.
-            let consecutive = 9;
-            let mut consec_mask = [0u16; 16];
-            for i in 0..consecutive {
-                consec_mask[i] = 0xffff;
-            }
-            let consec_mask = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&consec_mask[0]));
-            let and_not_mask = _mm256_andnot_si256(consec_mask, _mm256_set1_epi8(-1));
-            
-
-            // Allocate vectors to hold the min and max value found in each 'consecutive' block.
-            let mut min_values = [0x0u16; 16];
-            let mut max_values = [0xFFFFu16; 16];
-
-            // Iterate over all 16 possible rotations.
-            for k in 0..16 {
-                // Calculate the minimum in this sequence.
-                {
-                    let masked_seq = _mm256_and_si256 (difference_vector, consec_mask);
-                    let masked_rem_max = _mm256_or_si256(masked_seq, and_not_mask);
-
-                    // Retrieve the minimum u16 in the vector and store that.
-                    let calculated_min = _mm256_minpos_epu16(masked_rem_max);
-                    min_values[k] = calculated_min;
-                }
-
-                // Calculate the maximum in this sequence.
-                {
-                    // We only have min _mm256_minpos_epu16. so to do the max, we'll need to subtract diff
-                    // from a large enough value.
-                    let difference_vector_from_top = _mm256_sub_epi16(_mm256_set1_epi16(-1), difference_vector);
-                    let masked_seq = _mm256_and_si256 (difference_vector_from_top, consec_mask);
-                    let masked_rem_max = _mm256_or_si256(masked_seq, and_not_mask);
-
-                    // Retrieve the minimum u16 in the vector and store that.
-                    let calculated_max = _mm256_minpos_epu16(masked_rem_max);
-                    max_values[k] = calculated_max;
-                }
-
-                // Then, rotate the vector.
-                difference_vector = _mm256_rotate_across_2(difference_vector);
-            }
-
-
-            // Now, we need a max operation.
-            let min_values_vector = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&min_values[0]));
-            let min_values_from_top = _mm256_sub_epi16(_mm256_set1_epi16(1024), min_values_vector);
-            let lowest_min_values = _mm256_minpos_epu16(min_values_from_top);
-            // And finally translate this back to a signed value.
-            let extreme_highest = 1024 - lowest_min_values as i16  - 512;
-
-            // And our min operation.
-            let max_values_vector = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&max_values[0]));
-            let max_values_from_top = _mm256_sub_epi16(_mm256_set1_epi16(1024), max_values_vector);
-            let lowest_max_values = _mm256_minpos_epu16(max_values_from_top);
-            // And finally translate this back to a signed value.
-            let extreme_lowest = (lowest_max_values  - (1024 + 512 + 1)) as i16;
-
-            // Take the absolute minimum of both to determine the max 't' for which this is a point.
-            let res = extreme_highest.abs().min(extreme_lowest.abs()) as u16;
-            // println!("  res; {res:?}");
-
-            res
+            keypoint_score_max_threshold(base_v, pixels, 9)
         }
     }
 
@@ -840,7 +846,7 @@ mod test {
             let x = img.width() / 2;
             let y = img.height() / 2;
             let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
-            assert_eq!(zzz(&img, (x, y)), 20);
+            assert_eq!(opencv_nonmax_test_wrapper(&img, (x, y)), 20);
             assert_eq!(score, 20);
 
             for i in 0..20000 {
@@ -849,7 +855,7 @@ mod test {
                 let x = img.width() / 2;
                 let y = img.height() / 2;
                 let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
-                assert_eq!(zzz(&img, (x, y)), score);
+                assert_eq!(opencv_nonmax_test_wrapper(&img, (x, y)), score);
                 
             }
 
@@ -1006,7 +1012,7 @@ mod test {
         use rand_xoshiro::Xoshiro256PlusPlus;
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
         unsafe {
-            for i in 0..100000 {
+            for _i in 0..100000 {
                 let mut indices = [0u16; 16];
                 for k in 0..16 {
                     indices[k] = rng.next_u32() as u16;
@@ -1025,7 +1031,7 @@ mod test {
         use rand_xoshiro::Xoshiro256PlusPlus;
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
         unsafe {
-            for i in 0..100000 {
+            for _i in 0..100000 {
                 let mut indices = [0u16; 16];
                 for k in 0..16 {
                     indices[k] = rng.next_u32() as u16;
