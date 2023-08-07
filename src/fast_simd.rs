@@ -287,7 +287,12 @@ unsafe fn determine_keypoint<const NONMAX: bool>(
             found_consecutive += 1;
             // If we found the correct number of consecutive bits, bial out.
             if found_consecutive >= consecutive {
-                return true;
+                if !NONMAX {
+                    return true;
+                } else {
+                    // Need to calculate the score.
+                    return true;
+                }
             }
             // We can also break if we can not possibly reach consecutive before end of iteration
             // Needs a benchmark.
@@ -532,9 +537,9 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                     if check_mask[(xx - x) as usize] == 0 {
                         continue;
                     }
-                    let mut score: u16 = 0;
-                    let optional_score = if NONMAX {
-                        Some(&mut score)
+                    let mut nonmax_score: u16 = 0;
+                    let nonmax_optional_score = if NONMAX {
+                        Some(&mut nonmax_score)
                     } else {
                         None
                     };
@@ -545,7 +550,7 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                         (xx, y),
                         t as u8,
                         consecutive,
-                        optional_score,
+                        nonmax_optional_score,
                     ){
                         if !NONMAX {
                             r.push(FastPoint{x: xx, y: y});
@@ -563,9 +568,9 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                 // for x in (width - 16 - 3)..(width -3){
                 let x = x_step + 3;
 
-                let mut score: u16 = 0;
-                let optional_score = if NONMAX {
-                    Some(&mut score)
+                let mut nonmax_score: u16 = 0;
+                let nonmax_optional_score = if NONMAX {
+                    Some(&mut nonmax_score)
                 } else {
                     None
                 };
@@ -576,7 +581,7 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                     (x, y),
                     t as u8,
                     consecutive,
-                    optional_score,
+                    nonmax_optional_score,
                 ){
                     if !NONMAX {
                         r.push(FastPoint{x: x, y: y});
@@ -649,6 +654,162 @@ mod test {
         z
     }
 
+    fn create_random_image(seed: u64) -> image::GrayImage {
+        use rand_xoshiro::rand_core::{SeedableRng, RngCore};
+        use rand_xoshiro::Xoshiro256PlusPlus;
+
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
+        let center = rng.next_u32() as u8;
+        let mut circle_values = [0u8; 16];
+        for v in circle_values.iter_mut() {
+            *v = rng.next_u32() as u8;
+        }
+        create_sample_image(center, &circle_values)
+    }
+
+
+    pub fn zzz(image: &image::GrayImage, (x, y): (u32, u32)) -> u16 {
+        unsafe {
+            // Definition of the paper is, let a cirle point be p and center of the circle c.
+            //     darker: p <= c - t
+            //     similar: c - t < p < c + t
+            //     brigher: c + t <= p
+            //
+            let base_v = image.get_pixel(x, y)[0] as i16;
+
+            let mut points = [0 as u8; 16];
+            let offsets = circle();
+            for i in 0..offsets.len() {
+                let pos = circle()[i];
+                let p = image.get_pixel((x as i32 + pos.0) as u32, (y as i32 + pos.1) as u32)[0];
+                points[i] = p;
+            }
+
+            // _mm_minpos_epu16
+            // __m256i _mm256_unpackhi_epi8 (__m256i a, __m256i b)
+
+            let pixels = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&points[0]));
+            let pixels = _mm256_set_m128i(_mm_set1_epi64x(0), pixels); // combine two 128 into 256
+
+            let centers = _mm256_set1_epi16 (base_v);
+
+            // _mm256_unpackhi_epi8
+
+            // Perform a permutate to go from:
+            // v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 0 0 0 0 0 0 0 0 
+            // to
+            // v0 v1 v2 v3 v4 v5 v6 v7 0 0 0 0 0 0 0 0 ... v8 v9 v10 v11 v12 v13 v14 v15 0 0 0 0 0 0 0 0 
+            //
+            // Now, we can perform a i32 permutate to end up with everything in the first lane and in order:
+            let idx = _mm256_set_epi64x(
+                i64::from_ne_bytes(0x07_00000007u64.to_ne_bytes()),
+                i64::from_ne_bytes(0x03_00000002u64.to_ne_bytes()),
+                i64::from_ne_bytes(0x07_00000007u64.to_ne_bytes()),
+                i64::from_ne_bytes(0x01_00000000u64.to_ne_bytes()),
+            );
+
+            let pixels_two_lanes = _mm256_permutevar8x32_epi32(pixels, idx);
+            println!("pixels: {}", pl(&pixels));
+            println!("acr:    {}", pl(&pixels_two_lanes));
+
+            let zeros = _mm256_set1_epi64x(0);
+            let as_i16 = _mm256_unpacklo_epi8(pixels_two_lanes, zeros);
+            println!("as_i16:  {}", pl(&as_i16));
+            // let first_value = _mm256_extract_epi16 (as_i16, 0);
+
+            let difference_vector = _mm256_sub_epi16(centers, as_i16);
+            println!("diffv:   {}", pl(&difference_vector));
+            // let first_value = _mm256_extract_epi16 (difference_vector, 0);
+            // println!("first_value:    {}", first_value);
+
+
+            // panic!("bye");
+
+            // Lets expand those pixels into i16s
+
+            // Opencv has hardcoded 9/16, so their wrap-around ringbuffer is 16 + 9 = 25 long.
+            let mut difference = [0i16; 32];
+            _mm256_storeu_si256(
+                        std::mem::transmute::<_, *mut __m256i>(&mut difference[0]), difference_vector);
+
+            _mm256_storeu_si256(
+                        std::mem::transmute::<_, *mut __m256i>(&mut difference[16]), difference_vector);
+            /*
+            let mut above = [255i16; 25];
+            let mut below = [0i16; 25];
+            let offsets = circle();
+            for i in 0..difference.len() {
+                let pos = circle()[i % offsets.len()];
+                let circle_p =
+                    image.get_pixel((x as i32 + pos.0) as u32, (y as i32 + pos.1) as u32)[0] as i16;
+                difference[i] = base_v as i16 - circle_p;
+                if (base_v as i16) < circle_p {
+                    below[i] = (circle_p - base_v as i16 ).abs() as i16;
+                } else {
+                    above[i] = (base_v as i16 - circle_p).abs() as i16;
+                }
+            }*/
+            println!("Difference; {difference: >4?}");
+            // println!("above;      {above: >4?}");
+            // println!("below;      {below: >4?}");
+
+
+            // OpenCV calculates the highest / lowest extremum across any consecutive block of 9 pixels.
+            let mut extreme_highest = std::i16::MIN;
+            for k in 0..16 {
+                let min_value_of_9 = *difference[k..(k + 9)].iter().min().unwrap();
+                extreme_highest = extreme_highest.max(min_value_of_9);
+                println!("  min_value_of_9; {min_value_of_9:?}    extreme_highest; {extreme_highest:?}");
+            }
+
+            let mut extreme_lowest = std::i16::MAX;
+            for k in 0..16 {
+                let max_value_of_9 = *difference[k..(k + 9)].iter().max().unwrap();
+                extreme_lowest = extreme_lowest.min(max_value_of_9);
+                println!("   max_value_of_9; {max_value_of_9:?}  extreme_lowest; {extreme_lowest:?}");
+            }
+
+            // Take the absolute minimum of both to determine the max 't' for which this is a point.
+            let res = extreme_highest.abs().min(extreme_lowest.abs()) as u16;
+            println!("  res; {res:?}");
+
+            res
+        }
+    }
+
+    #[test]
+    fn test_47_115_score_calc() {
+        unsafe {
+            let center = 17;
+            let img = create_sample_image(
+                center,
+                &[
+                    // N              E                S              W
+                    37, 37, 39, 39, 37, 42, 43, 16, 14, 13, 15, 16, 15, 38, 37, 38,
+                    // 1, 2, 3, 4, 5 ,6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+                ],
+            );
+            let x = img.width() / 2;
+            let y = img.height() / 2;
+            let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
+            assert_eq!(score, 20);
+            assert_eq!(zzz(&img, (x, y)), 20);
+
+            for i in 0..20 {
+                println!("i: {i:?}");
+                let img = create_random_image(i);
+                let x = img.width() / 2;
+                let y = img.height() / 2;
+                let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
+                assert_eq!(zzz(&img, (x, y)), score);
+                
+            }
+
+
+            // Cool, now we have our vector, we just need to... do things, extremely fast.
+        }
+    }
+
     #[test]
     fn test_47_115_hand() {
         /*
@@ -683,7 +844,7 @@ mod test {
         // let height = img.height();
         let width = img.width();
         let circle_offset = calculate_offsets(width);
-        let mut p = FastPoint::default();
+
         let z = unsafe {
             determine_keypoint::<false>(
                 &img.as_raw(),
@@ -692,7 +853,7 @@ mod test {
                 (x, y),
                 threshold,
                 count_minimum,
-                &mut p
+                None
             )
         };
         assert!(z);
@@ -711,7 +872,7 @@ mod test {
         let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
         assert_eq!(score, 20);
 
-        let mut p = InternalPointWithScore::default();
+        let mut calculated_score = 0u16;
         let z = unsafe {
             determine_keypoint::<false>(
                 &img.as_raw(),
@@ -720,11 +881,11 @@ mod test {
                 (x, y),
                 threshold,
                 count_minimum,
-                &mut p
+                Some(&mut calculated_score)
             )
         };
         assert!(z);
-        assert_eq!(p.score, score);
+        assert_eq!(calculated_score, score);
     }
 
     #[test]

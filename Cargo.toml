@@ -9,6 +9,8 @@ edition = "2021"
 
 image = { version = "0.24.6"}
 
+[dev-dependencies]
+rand_xoshiro = "0.6.0"
 
 # https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]
