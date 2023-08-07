@@ -326,6 +326,7 @@ unsafe fn determine_keypoint<const NONMAX: bool>(
                     return true;
                 } else {
                     // Need to calculate the score.
+                    *score.unwrap() = keypoint_score_max_threshold(base_v, p, consecutive);
                     return true;
                 }
             }
@@ -590,8 +591,7 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                         if !NONMAX {
                             r.push(FastPoint{x: xx, y: y});
                         } else {
-                            let score = crate::opencv_compat::non_max_suppression_opencv_score(image, (xx, y));
-                            nonmax_y_0[xx as usize] = score;
+                            nonmax_y_0[xx as usize] = nonmax_score;
                         }
                     }
                 }
@@ -621,8 +621,7 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                     if !NONMAX {
                         r.push(FastPoint{x: x, y: y});
                     } else {
-                        let score = crate::opencv_compat::non_max_suppression_opencv_score(image, (x, y));
-                        nonmax_y_0[x as usize] = score;
+                        nonmax_y_0[x as usize] = nonmax_score;
                     }
                 }
                 
