@@ -126,43 +126,17 @@ unsafe fn _mm_cmpgt_epu8(a: __m128i, b: __m128i) -> __m128i {
     )
 }
 
-trait PointWithScore {
-    fn set_pos(&mut self, x: u32, y: u32);
-    fn set_score(&mut self, _score: u16){}
-}
-
-impl PointWithScore for FastPoint {
-    fn set_pos(&mut self, x: u32, y: u32) {
-        self.x = x;
-        self.y = y;
-    }
-}
-#[derive(Default)]
-struct InternalPointWithScore {
-    p: FastPoint,
-    score: u16,
-}
-
-impl PointWithScore for InternalPointWithScore {
-    fn set_pos(&mut self, x: u32, y: u32) {
-        self.p.x = x;
-        self.p.y = y;
-    }
-    fn set_score(&mut self, score: u16){
-        self.score = score;
-    }
-}
 // This inline keyword actually makes a difference.
 #[inline]
 /// Determine whether there's a keypoint at the provided location.
-unsafe fn determine_keypoint(
+unsafe fn determine_keypoint<const NONMAX: bool>(
     data: &[u8],
     circle_offset: &CircleOffsets,
     width: u32,
     p: (u32, u32),
     t: u8,
     consecutive: u8,
-    point: &mut dyn PointWithScore,
+    score: Option<&mut u16>,
 ) -> bool {
     trace!("\n\nDetermine keypoint at {p:?}");
     // Some shorthands
@@ -313,7 +287,6 @@ unsafe fn determine_keypoint(
             found_consecutive += 1;
             // If we found the correct number of consecutive bits, bial out.
             if found_consecutive >= consecutive {
-                point.set_pos(xx, y);
                 return true;
             }
             // We can also break if we can not possibly reach consecutive before end of iteration
@@ -559,33 +532,26 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                     if check_mask[(xx - x) as usize] == 0 {
                         continue;
                     }
-                    if !NONMAX {
-                        r.push(FastPoint{x: xx, y: y});
-                        if determine_keypoint(
-                            data,
-                            &circle_offset,
-                            width,
-                            (xx, y),
-                            t as u8,
-                            consecutive,
-                            r.last_mut().unwrap(),
-                        ){
+                    let mut score: u16 = 0;
+                    let optional_score = if NONMAX {
+                        Some(&mut score)
+                    } else {
+                        None
+                    };
+                    if determine_keypoint::<NONMAX>(
+                        data,
+                        &circle_offset,
+                        width,
+                        (xx, y),
+                        t as u8,
+                        consecutive,
+                        optional_score,
+                    ){
+                        if !NONMAX {
+                            r.push(FastPoint{x: xx, y: y});
                         } else {
-                            r.pop();
-                        }
-                    } else if NONMAX {
-                        let mut p: InternalPointWithScore = InternalPointWithScore::default();
-                        if determine_keypoint(
-                            data,
-                            &circle_offset,
-                            width,
-                            (xx, y),
-                            t as u8,
-                            consecutive,
-                            &mut p,
-                        ){
                             let score = crate::opencv_compat::non_max_suppression_opencv_score(image, (xx, y));
-                            nonmax_y_0[xx as usize] = score as u16;
+                            nonmax_y_0[xx as usize] = score;
                         }
                     }
                 }
@@ -596,33 +562,27 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
             {
                 // for x in (width - 16 - 3)..(width -3){
                 let x = x_step + 3;
-                if !NONMAX {
-                    r.push(FastPoint{x: x, y: y});
-                    if determine_keypoint(
-                        data,
-                        &circle_offset,
-                        width,
-                        (x, y),
-                        t as u8,
-                        consecutive,
-                        r.last_mut().unwrap(),
-                    ){
+
+                let mut score: u16 = 0;
+                let optional_score = if NONMAX {
+                    Some(&mut score)
+                } else {
+                    None
+                };
+                if determine_keypoint::<NONMAX>(
+                    data,
+                    &circle_offset,
+                    width,
+                    (x, y),
+                    t as u8,
+                    consecutive,
+                    optional_score,
+                ){
+                    if !NONMAX {
+                        r.push(FastPoint{x: x, y: y});
                     } else {
-                        r.pop();
-                    }
-                } else if NONMAX {
-                    let mut p: InternalPointWithScore = InternalPointWithScore::default();
-                    if determine_keypoint(
-                        data,
-                        &circle_offset,
-                        width,
-                        (x, y),
-                        t as u8,
-                        consecutive,
-                        &mut p,
-                    ){
                         let score = crate::opencv_compat::non_max_suppression_opencv_score(image, (x, y));
-                        nonmax_y_0[x as usize] = score as u16;
+                        nonmax_y_0[x as usize] = score;
                     }
                 }
                 
@@ -717,29 +677,54 @@ mod test {
         let threshold = 16;
         let count_minimum = 9;
 
+        let x = img.width() / 2;
+        let y = img.height() / 2;
+
         // let height = img.height();
         let width = img.width();
         let circle_offset = calculate_offsets(width);
+        let mut p = FastPoint::default();
         let z = unsafe {
-            determine_keypoint(
+            determine_keypoint::<false>(
                 &img.as_raw(),
                 &circle_offset,
                 width,
-                (img.width() / 2, img.height() / 2),
+                (x, y),
                 threshold,
                 count_minimum,
+                &mut p
             )
         };
-        assert!(z.is_some());
+        assert!(z);
 
         let detected = detect::<false>(&img, 16, 9);
         assert_eq!(
             detected.contains(&FastPoint {
-                x: img.width() / 2,
-                y: img.height() / 2
+                x,
+                y
             }),
             true
         );
+
+
+        // Check the score function.
+        let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
+        assert_eq!(score, 20);
+
+        let mut p = InternalPointWithScore::default();
+        let z = unsafe {
+            determine_keypoint::<false>(
+                &img.as_raw(),
+                &circle_offset,
+                width,
+                (x, y),
+                threshold,
+                count_minimum,
+                &mut p
+            )
+        };
+        assert!(z);
+        assert_eq!(p.score, score);
     }
 
     #[test]

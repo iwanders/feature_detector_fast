@@ -164,7 +164,7 @@ pub fn detect(
     r
 }
 
-pub fn non_max_suppression_opencv_score(image: &image::GrayImage, (x, y): (u32, u32)) -> i16 {
+pub fn non_max_suppression_opencv_score(image: &image::GrayImage, (x, y): (u32, u32)) -> u16 {
     // Definition of the paper is, let a cirle point be p and center of the circle c.
     //     darker: p <= c - t
     //     similar: c - t < p < c + t
@@ -196,7 +196,7 @@ pub fn non_max_suppression_opencv_score(image: &image::GrayImage, (x, y): (u32, 
     }
 
     // Take the absolute minimum of both to determine the max 't' for which this is a point.
-    extreme_highest.abs().min(extreme_lowest.abs())
+    extreme_highest.abs().min(extreme_lowest.abs()) as u16
 }
 
 /// This is identical to opencv, very inefficient though.
