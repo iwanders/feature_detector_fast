@@ -28,44 +28,19 @@
 //! Tests ran on my system (i7-4770TE, from 2014) against a 1920 x 1080 grayscale image from a
 //! computer game.
 //!
-//! OpenCV takes 18'ish milliseconds to run with a threshold of 16, 9/16 consecutive, no nonmax supression. This finds 23184 keypoints.
-//! This implementation takes 10'ish milliseconds, with the same parameters. And finds the same 23184 keypoints.
-//!
+//! Results without non-maximum supression:
+//!   - OpenCV takes 18'ish milliseconds to run with a threshold of 16, 9/16 consecutive, no nonmax supression. This finds 23184 keypoints.
+//!   - This implementation takes 10'ish milliseconds, with the same parameters. And finds the same 23184 keypoints.
+//! Results with non-maximum supression:
+//!   - OpenCV takes 31'ish milliseconds to run with a threshold of 16, 9/16 consecutive, nonmax supression using maximum 't' for which it is a keypoint. This finds 7646 keypoints.
+//!   - This implementation takes 14'ish milliseconds, with the same parameters. And finds the same 7646 keypoints.
 //!
 
 use crate::{FastConfig, FastPoint};
 use std::arch::x86_64::*;
 
-/*
-    avx
-    avx2
-    sse
-    sse2
-    sse3
-    sse4_1
-    sse4_2
+// https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#techs=MMX&avxnewtechs=AVX,AVX2&ssetechs=SSE,SSE2,SSE3,SSSE3,SSE4_1,SSE4_2
 
-    // https://doc.rust-lang.org/stable/core/arch/x86_64/struct.__m128i.html
-    https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#techs=MMX&avxnewtechs=AVX,AVX2&ssetechs=SSE,SSE2,SSE3,SSSE3,SSE4_1,SSE4_2
-*/
-
-#[allow(dead_code)]
-/// Print a vector of m128 type.
-unsafe fn pi(input: &__m128i) -> String {
-    let v: [u8; 16] = [0; 16];
-    _mm_storeu_si128(v.as_ptr() as *mut _, *input);
-    format!("{:02X?}", v)
-}
-
-#[allow(dead_code)]
-/// Print a vector of m256 type.
-unsafe fn pl(input: &__m256i) -> String {
-    let v: [u8; 32] = [0; 32];
-    _mm256_storeu_si256(v.as_ptr() as *mut _, *input);
-    format!("{} | {}",
-    format!("{:02X?}", &v[0..16]),
-    format!("{:02X?}", &v[16..]))
-}
 
 const DO_PRINTS: bool = false;
 
@@ -117,52 +92,8 @@ pub fn calculate_offsets(width: u32) -> CircleOffsets {
     circle_offset
 }
 
-/// Compare u8 types in a m128 vector.
-///  https://stackoverflow.com/a/24234695
-unsafe fn _mm_cmpgt_epu8(a: __m128i, b: __m128i) -> __m128i {
-    // ah, this is a signed comparison...
-    // https://stackoverflow.com/a/24234695
-    _mm_cmpgt_epi8(
-        _mm_xor_si128(a, _mm_set1_epi8(-128)), // range-shift to unsigned
-        _mm_xor_si128(b, _mm_set1_epi8(-128)),
-    )
-}
-
-unsafe fn _mm256_minpos_epu16(v: __m256i) -> u16 {
-    let lower = _mm256_extracti128_si256 (v, 0);
-    let upper = _mm256_extracti128_si256 (v, 1);
-    let lower_lowest = _mm_minpos_epu16(lower);
-    let upper_lowest = _mm_minpos_epu16(upper);
-    let lower_lowest = _mm_extract_epi16 (lower_lowest, 0);
-    let upper_lowest = _mm_extract_epi16 (upper_lowest, 0);
-    lower_lowest.min(upper_lowest) as u16
-}
-
-unsafe fn _mm256_rotate_across_2( difference_vector: __m256i) -> __m256i {
-    // __m256i _mm256_alignr_epi8 (__m256i a, __m256i b, const int imm8)
-    let rotated = _mm256_alignr_epi8(difference_vector, difference_vector, 2);
-    // println!("r:       {}", pl(&rotated));
-
-    // Gah, that's per lane... so we need to swap the top of both lanes.
-    // __m256i _mm256_insert_epi16 (__m256i a, __int16 i, const int index)
-
-    let rotated_swap = _mm256_permute2x128_si256 (rotated, rotated, 1);
-    // println!("rswap    {}", pl(&rotated_swap));
-
-    // Cool, with the lanes swapped, we can blend the two lanes;
-    let mask = _mm256_set_epi64x(
-        i64::from_ne_bytes(0xFFFF0000_00000000u64.to_ne_bytes()),
-        i64::from_ne_bytes(0x00000000_00000000u64.to_ne_bytes()),
-        i64::from_ne_bytes(0xFFFF0000_00000000u64.to_ne_bytes()),
-        i64::from_ne_bytes(0x00000000_00000000u64.to_ne_bytes()),
-    );
-    let rotated = _mm256_blendv_epi8 (rotated, rotated_swap, mask);
-    // println!("rot      {}", pl(&rotated));
-    rotated
-}
-
 // This inline keyword actually makes a difference.
-#[inline]
+#[inline(always)]
 /// Determine whether there's a keypoint at the provided location.
 unsafe fn determine_keypoint<const NONMAX: bool>(
     data: &[u8],
@@ -760,6 +691,72 @@ pub fn keypoint_score_max_threshold(base_v: u8, pixels: __m128i, consecutive: u8
         res
     }
 }
+
+
+/// Compare u8 types in a m128 vector.
+///  https://stackoverflow.com/a/24234695
+unsafe fn _mm_cmpgt_epu8(a: __m128i, b: __m128i) -> __m128i {
+    // ah, this is a signed comparison...
+    // https://stackoverflow.com/a/24234695
+    _mm_cmpgt_epi8(
+        _mm_xor_si128(a, _mm_set1_epi8(-128)), // range-shift to unsigned
+        _mm_xor_si128(b, _mm_set1_epi8(-128)),
+    )
+}
+/// Calculate the minimum u16 of a m256 vector.
+unsafe fn _mm256_minpos_epu16(v: __m256i) -> u16 {
+    let lower = _mm256_extracti128_si256 (v, 0);
+    let upper = _mm256_extracti128_si256 (v, 1);
+    let lower_lowest = _mm_minpos_epu16(lower);
+    let upper_lowest = _mm_minpos_epu16(upper);
+    let lower_lowest = _mm_extract_epi16 (lower_lowest, 0);
+    let upper_lowest = _mm_extract_epi16 (upper_lowest, 0);
+    lower_lowest.min(upper_lowest) as u16
+}
+
+/// Rotate an m256 by two bytes, across lanes.
+unsafe fn _mm256_rotate_across_2( difference_vector: __m256i) -> __m256i {
+    // __m256i _mm256_alignr_epi8 (__m256i a, __m256i b, const int imm8)
+    let rotated = _mm256_alignr_epi8(difference_vector, difference_vector, 2);
+    // println!("r:       {}", pl(&rotated));
+
+    // Gah, that's per lane... so we need to swap the top of both lanes.
+    // __m256i _mm256_insert_epi16 (__m256i a, __int16 i, const int index)
+
+    let rotated_swap = _mm256_permute2x128_si256 (rotated, rotated, 1);
+    // println!("rswap    {}", pl(&rotated_swap));
+
+    // Cool, with the lanes swapped, we can blend the two lanes;
+    let mask = _mm256_set_epi64x(
+        i64::from_ne_bytes(0xFFFF0000_00000000u64.to_ne_bytes()),
+        i64::from_ne_bytes(0x00000000_00000000u64.to_ne_bytes()),
+        i64::from_ne_bytes(0xFFFF0000_00000000u64.to_ne_bytes()),
+        i64::from_ne_bytes(0x00000000_00000000u64.to_ne_bytes()),
+    );
+    let rotated = _mm256_blendv_epi8 (rotated, rotated_swap, mask);
+    // println!("rot      {}", pl(&rotated));
+    rotated
+}
+
+#[allow(dead_code)]
+/// Print a vector of m128 type.
+unsafe fn pi(input: &__m128i) -> String {
+    let v: [u8; 16] = [0; 16];
+    _mm_storeu_si128(v.as_ptr() as *mut _, *input);
+    format!("{:02X?}", v)
+}
+
+#[allow(dead_code)]
+/// Print a vector of m256 type.
+unsafe fn pl(input: &__m256i) -> String {
+    let v: [u8; 32] = [0; 32];
+    _mm256_storeu_si256(v.as_ptr() as *mut _, *input);
+    format!("{} | {}",
+    format!("{:02X?}", &v[0..16]),
+    format!("{:02X?}", &v[16..]))
+}
+
+
 
 pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
     if config.non_maximal_supression {
