@@ -328,7 +328,7 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
     // row y-0, current
     // At the end of each row, we will iterate through y-1, and finalise keypoints based on whether
     // the neighbour scores are lower / higher / better, etc.
-    let mut nonmax_pending_insertions: Vec<Option<u16>> = vec![None; width as usize * 3];
+    let mut nonmax_pending_insertions: Vec<u16> = vec![0; width as usize * 3];
     let (mut nonmax_first, nonmax_second) = nonmax_pending_insertions.split_at_mut(width as usize);
     let (mut nonmax_second, mut nonmax_third) = nonmax_second.split_at_mut(width as usize);
     // let nonmax_rows = [nonmax_first, nonmax_second, nonmax_third];
@@ -371,7 +371,7 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
             let nonmax_y_1 = &mut nonmax_y_1[0];
             let nonmax_y_0 = &mut nonmax_y_0[0];
             // start of the row, clear the current;
-            nonmax_y_0.fill(None);
+            nonmax_y_0.fill(0);
 
             const STEP_SIZE: usize = 16;
             let x_chunks = (width - 3 - 3) / STEP_SIZE as u32;
@@ -546,7 +546,7 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                         } else {
                             // push into pending for evaluation vector.
                             let score = crate::opencv_compat::non_max_suppression_opencv_score(image, (xx, y));
-                            nonmax_y_0[xx as usize] = Some(score as u16);
+                            nonmax_y_0[xx as usize] = score as u16;
                         }
                     }
                 }
@@ -565,7 +565,7 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                     } else {
                         // push into pending for evaluation vector.
                         let score = crate::opencv_compat::non_max_suppression_opencv_score(image, (x, y));
-                        nonmax_y_0[x as usize] = Some(score as u16);
+                        nonmax_y_0[x as usize] = score as u16;
                     }
                 }
             }
@@ -583,15 +583,15 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                 let below = &nonmax_y_0;
                 for x in 3..(width as usize - 3) {
                     // check if we even have a point here.
-                    if center[x].is_none(){
+                    if center[x] == 0{
                         continue;
                     }
 
                     // our score shorthand
-                    let s = *center[x].as_ref().unwrap();
-                    let exceed_above = s > above[x - 1].unwrap_or(0) && s > above[x - 0].unwrap_or(0) && s > above[x + 1].unwrap_or(0);
-                    let exceed_cntr = s > center[x - 1].unwrap_or(0) && s > center[x + 1].unwrap_or(0);
-                    let exceed_below = s > below[x - 1].unwrap_or(0) && s > below[x - 0].unwrap_or(0) && s > below[x + 1].unwrap_or(0);
+                    let s = center[x];
+                    let exceed_above = s > above[x - 1] && s > above[x - 0] && s > above[x + 1] ;
+                    let exceed_cntr = s > center[x - 1] && s > center[x + 1] ;
+                    let exceed_below = s > below[x - 1] && s > below[x - 0] && s > below[x + 1] ;
 
                     if (exceed_above && exceed_cntr && exceed_below) {
                         r.push(FastPoint{x: x as u32, y: y - 1});
