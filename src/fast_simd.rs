@@ -757,15 +757,6 @@ mod test {
             println!("diffv:   {}", pl(&difference_vector));
 
             
-            // let mut difference = [0i16; 32];
-            // _mm256_storeu_si256(
-                        // std::mem::transmute::<_, *mut __m256i>(&mut difference[0]), difference_vector);
-
-            // _mm256_storeu_si256(
-                        // std::mem::transmute::<_, *mut __m256i>(&mut difference[16]), difference_vector);
- 
-
-            
             let difference_vector_plus_512 = _mm256_sub_epi16(_mm256_add_epi16(centers, _mm256_set1_epi16(512)), as_i16);
             let mut difference_vector = difference_vector_plus_512;
 
@@ -781,7 +772,6 @@ mod test {
             // Opencv has hardcoded 9/16, so their wrap-around ringbuffer is 16 + 9 = 25 long.
 
             // OpenCV calculates the highest / lowest extremum across any consecutive block of 9 pixels.
-            // let mut extreme_highest = std::i16::MIN;
             let mut min_values = [0x0u16; 16];
             for k in 0..16 {
                 // let min_value_of_9 = *difference[k..(k + 9)].iter().min().unwrap();
@@ -793,15 +783,8 @@ mod test {
 
                 min_values[k] = calculated_min;
 
-                // let min = calculated_min as i16 - 512;
                 difference_vector = _mm256_rotate_across_2(difference_vector);
-                // println!("min: {min:02x}");
-                // assert_eq!(min_value_of_9, min);
-                // panic!();
-                // extreme_highest = extreme_highest.max(min_value_of_9);
-                // println!("  min_value_of_9; {min_value_of_9:?}    extreme_highest; {extreme_highest:?}");
             }
-            // println!("{min_values:02x?}");
 
             // Now, we need a max operation.
             let min_values_vector = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&min_values[0]));
@@ -810,8 +793,6 @@ mod test {
             let extreme_highest = 1024 - lowest_min_values as i16  - 512;
             // assert_eq!(extreme_highest, extreme_highest_from_vector);
 
-
-            // let mut extreme_lowest = std::i16::MAX;
 
             // We only have min _mm256_minpos_epu16. so to do the max, we'll need to subtract diff
             // from a large enough value.
@@ -826,25 +807,14 @@ mod test {
                 let masked_rem_max = _mm256_or_si256(masked_seq, _mm256_andnot_si256(consec_mask, _mm256_set1_epi8(-1)));
                 let calculated_max = _mm256_minpos_epu16(masked_rem_max);
                 difference_vector = _mm256_rotate_across_2(difference_vector);
-                // println!("calculated_max found: {calculated_max}");
-                // let calculated_max_corrected = std::u16::MAX as i16 - calculated_max as i16 - 512;
-                // assert_eq!(calculated_max_corrected, max_value_of_9);
-                max_values[k] = calculated_max;
-                // assert_eq!((std::u16::MAX  - max_values[k] - 512) as i16, max_value_of_9);
-                
-                // panic!();
 
-                // extreme_lowest = extreme_lowest.min(max_value_of_9);
-                // println!("   max_value_of_9; {max_value_of_9:?}  extreme_lowest; {extreme_lowest:?}");
+                max_values[k] = calculated_max;
+
             }
             let max_values_vector = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&max_values[0]));
-            // println!("max values: {}", pl(&max_values_vector));
-            // let max_values_vector = _mm256_sub_epi16(_mm256_set1_epi16(1024), max_values_vector);
             let max_values_from_top = _mm256_sub_epi16(_mm256_set1_epi16(1024), max_values_vector);
             let lowest_max_values = _mm256_minpos_epu16(max_values_from_top);
-            // println!("lowest_max_values found: {lowest_max_values}");
             let extreme_lowest = -(1024 - lowest_max_values as i16 + 512) - 1;  // pretty sure this is a reinterpret cast.
-            // assert_eq!(extreme_lowest, extreme_lowest_from_vector);
 
             // Take the absolute minimum of both to determine the max 't' for which this is a point.
             let res = extreme_highest.abs().min(extreme_lowest.abs()) as u16;
