@@ -566,7 +566,61 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                 let above = &nonmax_y_2;
                 let center = &nonmax_y_1;
                 let below = &nonmax_y_0;
-                for x in 3..(width as usize - 3) {
+
+                const STEP_SIZE: usize = 16;
+                let x_chunks = (width - 3 - 3) / STEP_SIZE as u32;
+                for x_step in 0..x_chunks {
+                    let x = 3 + x_step * STEP_SIZE as u32;
+
+                    let mid_center = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>( &center[x as usize]));
+                    if _mm256_testz_si256 (mid_center, _mm256_set1_epi64x(0)) == 0 {
+                        continue;
+                    }
+
+                    let top_left = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>( &above[(x - 1) as usize]));
+                    let top_center = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>( &above[x as usize]));
+                    let top_right = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>( &above[(x + 1) as usize]));
+
+                    let mid_left = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>( &center[(x - 1) as usize]));
+                    let mid_right = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>( &center[(x + 1) as usize]));
+
+                    let bottom_left = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>( &below[(x - 1) as usize]));
+                    let bottom_center = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>( &below[x as usize]));
+                    let bottom_right = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>( &below[(x + 1) as usize]));
+
+                    let exceed_tl = _mm256_cmpgt_epi16(mid_center, top_left);
+                    let exceed_tc = _mm256_cmpgt_epi16(mid_center, top_center);
+                    let exceed_tr = _mm256_cmpgt_epi16(mid_center, top_right);
+                    let exceed_top = _mm256_and_si256(_mm256_and_si256(exceed_tl, exceed_tc), exceed_tr);
+
+                    
+                    let exceed_cl = _mm256_cmpgt_epi16(mid_center, mid_left);
+                    let exceed_cr = _mm256_cmpgt_epi16(mid_center, mid_right);
+                    let exceed_mid = _mm256_and_si256(exceed_cl, exceed_cr);
+
+                    let exceed_bl = _mm256_cmpgt_epi16(mid_center, bottom_left);
+                    let exceed_bc = _mm256_cmpgt_epi16(mid_center, bottom_center);
+                    let exceed_br = _mm256_cmpgt_epi16(mid_center, bottom_right);
+                    let exceed_bottom = _mm256_and_si256(_mm256_and_si256(exceed_bl, exceed_bc), exceed_br);
+
+                    let exceeds = _mm256_and_si256(_mm256_and_si256(exceed_top, exceed_mid), exceed_bottom);
+
+                    let mut exceeds_values = [0u16; STEP_SIZE];
+                    _mm256_storeu_si256(
+                        std::mem::transmute::<_, *mut __m256i>(&mut exceeds_values[0]),
+                        exceeds,
+                    );
+                    for j in 0..STEP_SIZE {
+                        if exceeds_values[j] != 0 {
+                            r.push(FastPoint{x: (x + j as u32) as u32, y: y - 1});
+                        }
+                    }
+                }
+
+                for x_step in ((width - 3 - 3) / STEP_SIZE as u32) * (STEP_SIZE as u32)..(width - 3 - 3)
+                {
+                    let x = (x_step + 3) as usize;
+
                     // check if we even have a point here.
                     if center[x] == 0{
                         continue;
