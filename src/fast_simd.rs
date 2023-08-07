@@ -47,7 +47,6 @@ use std::arch::x86_64::*;
 
     // https://doc.rust-lang.org/stable/core/arch/x86_64/struct.__m128i.html
     https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#techs=MMX&avxnewtechs=AVX,AVX2&ssetechs=SSE,SSE2,SSE3,SSSE3,SSE4_1,SSE4_2
-
 */
 
 #[allow(dead_code)]
@@ -127,6 +126,32 @@ unsafe fn _mm_cmpgt_epu8(a: __m128i, b: __m128i) -> __m128i {
     )
 }
 
+trait PointWithScore {
+    fn set_pos(&mut self, x: u32, y: u32);
+    fn set_score(&mut self, _score: u16){}
+}
+
+impl PointWithScore for FastPoint {
+    fn set_pos(&mut self, x: u32, y: u32) {
+        self.x = x;
+        self.y = y;
+    }
+}
+#[derive(Default)]
+struct InternalPointWithScore {
+    p: FastPoint,
+    score: u16,
+}
+
+impl PointWithScore for InternalPointWithScore {
+    fn set_pos(&mut self, x: u32, y: u32) {
+        self.p.x = x;
+        self.p.y = y;
+    }
+    fn set_score(&mut self, score: u16){
+        self.score = score;
+    }
+}
 // This inline keyword actually makes a difference.
 #[inline]
 /// Determine whether there's a keypoint at the provided location.
@@ -137,7 +162,8 @@ unsafe fn determine_keypoint(
     p: (u32, u32),
     t: u8,
     consecutive: u8,
-) -> Option<FastPoint> {
+    point: &mut dyn PointWithScore,
+) -> bool {
     trace!("\n\nDetermine keypoint at {p:?}");
     // Some shorthands
     let xx = p.0;
@@ -287,7 +313,8 @@ unsafe fn determine_keypoint(
             found_consecutive += 1;
             // If we found the correct number of consecutive bits, bial out.
             if found_consecutive >= consecutive {
-                return Some(FastPoint { x: xx, y });
+                point.set_pos(xx, y);
+                return true;
             }
             // We can also break if we can not possibly reach consecutive before end of iteration
             // Needs a benchmark.
@@ -299,7 +326,7 @@ unsafe fn determine_keypoint(
         }
     }
 
-    None
+    false
 }
 
 // It would be really nice to have feature(adt_const_params) here; https://github.com/rust-lang/rust/issues/95174
@@ -314,7 +341,6 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
 
     let height = image.height();
     let width = image.width();
-
 
     // Nonmax suppression works with blocks of 3x3, instead of inserting the keypoints immediately
     // we will need to keep track of them, until have calculated the neighbours and can properly
@@ -533,18 +559,31 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                     if check_mask[(xx - x) as usize] == 0 {
                         continue;
                     }
-                    if let Some(keypoint) = determine_keypoint(
-                        data,
-                        &circle_offset,
-                        width,
-                        (xx, y),
-                        t as u8,
-                        consecutive,
-                    ) {
-                        if !NONMAX {
-                            r.push(keypoint);
+                    if !NONMAX {
+                        r.push(FastPoint{x: xx, y: y});
+                        if determine_keypoint(
+                            data,
+                            &circle_offset,
+                            width,
+                            (xx, y),
+                            t as u8,
+                            consecutive,
+                            r.last_mut().unwrap(),
+                        ){
                         } else {
-                            // push into pending for evaluation vector.
+                            r.pop();
+                        }
+                    } else if NONMAX {
+                        let mut p: InternalPointWithScore = InternalPointWithScore::default();
+                        if determine_keypoint(
+                            data,
+                            &circle_offset,
+                            width,
+                            (xx, y),
+                            t as u8,
+                            consecutive,
+                            &mut p,
+                        ){
                             let score = crate::opencv_compat::non_max_suppression_opencv_score(image, (xx, y));
                             nonmax_y_0[xx as usize] = score as u16;
                         }
@@ -557,23 +596,39 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
             {
                 // for x in (width - 16 - 3)..(width -3){
                 let x = x_step + 3;
-                if let Some(keypoint) =
-                    determine_keypoint(data, &circle_offset, width, (x, y), t as u8, consecutive)
-                {
-                    if !NONMAX {
-                        r.push(keypoint);
+                if !NONMAX {
+                    r.push(FastPoint{x: x, y: y});
+                    if determine_keypoint(
+                        data,
+                        &circle_offset,
+                        width,
+                        (x, y),
+                        t as u8,
+                        consecutive,
+                        r.last_mut().unwrap(),
+                    ){
                     } else {
-                        // push into pending for evaluation vector.
+                        r.pop();
+                    }
+                } else if NONMAX {
+                    let mut p: InternalPointWithScore = InternalPointWithScore::default();
+                    if determine_keypoint(
+                        data,
+                        &circle_offset,
+                        width,
+                        (x, y),
+                        t as u8,
+                        consecutive,
+                        &mut p,
+                    ){
                         let score = crate::opencv_compat::non_max_suppression_opencv_score(image, (x, y));
                         nonmax_y_0[x as usize] = score as u16;
                     }
                 }
+                
             }
 
             // At the end of the row, if we are doing nonmax, iterate through the appropriate row, and evaluate.
-            // let nonmax_y_2 = &mut nonmax_pending_insertions[nonmax_y_index_2..(nonmax_y_index_2 + width as usize)];
-            // let nonmax_y_1 = &mut nonmax_pending_insertions[nonmax_y_index_1..(nonmax_y_index_1 + width as usize)];
-            // let mut nonmax_y_0 = &mut nonmax_pending_insertions[nonmax_y_index_0..(nonmax_y_index_0 + width as usize)];
             if NONMAX {
                 if y == 4 {
                     continue; // Quirk from OpenCV?
@@ -593,7 +648,7 @@ pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: 
                     let exceed_cntr = s > center[x - 1] && s > center[x + 1] ;
                     let exceed_below = s > below[x - 1] && s > below[x - 0] && s > below[x + 1] ;
 
-                    if (exceed_above && exceed_cntr && exceed_below) {
+                    if exceed_above && exceed_cntr && exceed_below {
                         r.push(FastPoint{x: x as u32, y: y - 1});
                     }
                 }
@@ -677,7 +732,7 @@ mod test {
         };
         assert!(z.is_some());
 
-        let detected = detect(&img, 16, 9);
+        let detected = detect::<false>(&img, 16, 9);
         assert_eq!(
             detected.contains(&FastPoint {
                 x: img.width() / 2,

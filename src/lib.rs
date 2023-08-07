@@ -13,7 +13,7 @@ pub mod util;
 
 use image;
 
-#[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Debug, Clone, Eq, PartialEq, Hash, Default)]
 pub struct FastPoint {
     pub x: u32,
     pub y: u32,
