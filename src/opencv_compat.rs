@@ -22,12 +22,7 @@ In this file, I implemented (very naively) logic that is identical to opencv:
 
 */
 use image::{GenericImageView, Luma};
-
-#[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
-pub struct FastPoint {
-    pub x: u32,
-    pub y: u32,
-}
+use crate::{FastPoint, FastConfig};
 
 const DO_PRINTS: bool = false;
 
@@ -40,13 +35,6 @@ macro_rules! trace {
         }
     }
 }
-
-use super::*;
-
-pub const NORTH: usize = 0;
-pub const EAST: usize = 4;
-pub const SOUTH: usize = 8;
-pub const WEST: usize = 12;
 
 /// The circle with 16 pixels.
 pub const fn circle() -> [(i32, i32); 16] {
@@ -70,10 +58,11 @@ pub const fn circle() -> [(i32, i32); 16] {
     ]
 }
 
-pub const fn point(index: u8) -> (i32, i32) {
+const fn point(index: u8) -> (i32, i32) {
     circle()[index as usize % circle().len()]
 }
 
+/// Create a blue circle of the points for debugging.
 pub fn make_circle_image() -> image::RgbImage {
     const BLUE: image::Rgb<u8> = image::Rgb([0u8, 0u8, 255u8]);
     let mut image = image::RgbImage::new(32, 32);
@@ -141,7 +130,9 @@ pub fn detect(
                 println!("  pos: {pos:?}");
             }
 
-            // There's probably a way more efficient way of doing this rotation.
+            // There's a way more efficient way of doing this rotation, kept like this because it
+            // is a direct translation of finding the number of consecutive values that exceed
+            // the threshold on a ringbuffer.
             for s in 0..COUNT {
                 let n = neg
                     .iter()
@@ -176,8 +167,7 @@ pub fn detect(
 /// This is identical to opencv, very inefficient though.
 pub fn non_max_supression_opencv(
     image: &image::GrayImage,
-    keypoints: &[FastPoint],
-    threshold: u8,
+    keypoints: &[FastPoint]
 ) -> Vec<FastPoint> {
     // Very inefficient.
     let mut res = vec![];
@@ -247,23 +237,11 @@ pub fn non_max_supression_opencv(
     res
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct FastConfig {
-    /// Value to be exceeded.
-    pub threshold: u8,
-
-    /// Count of consecutive pixels
-    pub count: u8,
-
-    /// Whether to use non maximal suprresion.
-    pub non_maximal_supression: bool,
-}
-
 pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
     let r = detect(img, config.threshold, config.count);
 
     if config.non_maximal_supression {
-        return non_max_supression_opencv(img, &r, config.threshold);
+        return non_max_supression_opencv(img, &r);
     }
     r
 }

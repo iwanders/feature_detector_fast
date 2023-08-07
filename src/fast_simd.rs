@@ -35,7 +35,7 @@
 //!
 
 
-use crate::fast::FastPoint;
+use crate::{FastPoint, FastConfig};
 use std::arch::x86_64::*;
 
 /*
@@ -106,15 +106,6 @@ pub const fn circle() -> [(i32, i32); 16] {
         (-2, -2),
         (-1, -3),
     ]
-}
-/// Create a blue circle that holds these points, for debugging.
-pub fn make_circle_image() -> image::RgbImage {
-    const BLUE: image::Rgb<u8> = image::Rgb([0u8, 0u8, 255u8]);
-    let mut image = image::RgbImage::new(32, 32);
-    for (dx, dy) in circle().iter() {
-        image.put_pixel((16i32 + dx) as u32, (16i32 + dy) as u32, BLUE)
-    }
-    image
 }
 
 pub type CircleOffsets = [i32; 16];
@@ -538,7 +529,7 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
     r
 }
 
-pub fn detector(img: &image::GrayImage, config: &crate::fast::FastConfig) -> Vec<FastPoint> {
+pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
     detect(img, config.threshold, config.count)
 }
 

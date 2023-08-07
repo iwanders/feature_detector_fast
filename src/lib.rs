@@ -1,4 +1,4 @@
-pub mod fast;
+pub mod opencv_compat;
 
 #[cfg(any(doc, all(any(target_arch = "x86_64"), target_feature = "avx2")))]
 pub mod fast_simd;
@@ -7,7 +7,28 @@ pub mod util;
 
 use image;
 
-fn hash_result(points: &[fast::FastPoint]) -> u64 {
+
+#[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
+pub struct FastPoint {
+    pub x: u32,
+    pub y: u32,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct FastConfig {
+    /// Value to be exceeded.
+    pub threshold: u8,
+
+    /// Count of consecutive pixels
+    pub count: u8,
+
+    /// Whether to use non maximal suprresion.
+    pub non_maximal_supression: bool,
+}
+
+
+
+fn hash_result(points: &[FastPoint]) -> u64 {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hash;
     use std::hash::Hasher;
@@ -28,10 +49,10 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let luma_view = image::DynamicImage::ImageRgb8(orig_image.clone()).to_luma8();
     let _ = luma_view.save("/tmp/rust_grey.png")?;
 
-    let circle_image = fast::make_circle_image();
+    let circle_image = opencv_compat::make_circle_image();
     let _ = circle_image.save("/tmp/circle_image.png")?;
 
-    let config = fast::FastConfig {
+    let config = FastConfig {
         threshold: 16,
         count: 9,
         non_maximal_supression: true,
@@ -42,7 +63,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     println!("simd is: {:?}", start.elapsed());
 
     let start = std::time::Instant::now();
-    let keypoints = fast::detector(&luma_view, &config);
+    let keypoints = opencv_compat::detector(&luma_view, &config);
     println!("normal is: {:?}", start.elapsed());
 
     if keypoints_simd != keypoints {
