@@ -1,10 +1,9 @@
 //!
-//! This implements the FAST feature detector from Rosten & Drummond, 2006.
+//! This is a highly optimised implementation of the FAST feature detector.
+//! It makes heavy use of the AVX2 instruction set to achieve the highest possible throughput.
 //!
-//! It makes heavy use of the AVX2 instruction set.
-//! 
 //!   - The circle has 16 points, which fits in a single 128 bit instruction lane.
-//! 
+//!
 //! Definition of the paper is, let a cirle point be p and center of the circle c.
 //!     darker: p <= c - t
 //!     similar: c - t < p < c + t
@@ -28,14 +27,13 @@
 //!
 //! Tests ran on my system (i7-4770TE, from 2014) against a 1920 x 1080 grayscale image from a
 //! computer game.
-//! 
+//!
 //! OpenCV takes 18'ish milliseconds to run with a threshold of 16, 9/16 consecutive, no nonmax supression. This finds 23184 keypoints.
 //! This implementation takes 10'ish milliseconds, with the same parameters. And finds the same 23184 keypoints.
 //!
 //!
 
-
-use crate::{FastPoint, FastConfig};
+use crate::{FastConfig, FastPoint};
 use std::arch::x86_64::*;
 
 /*
@@ -304,9 +302,11 @@ unsafe fn determine_keypoint(
     None
 }
 
-
 pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint> {
-    assert!(consecutive >= 9, "number of consecutive pixels needs to exceed 9");
+    assert!(
+        consecutive >= 9,
+        "number of consecutive pixels needs to exceed 9"
+    );
 
     let height = image.height();
     let width = image.width();

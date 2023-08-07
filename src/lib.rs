@@ -1,3 +1,9 @@
+/*!
+    This implements the FAST feature detector from Rosten & Drummond, 2006.
+
+    It follows the description of rosten2006.pdf "LNCS 3951 - Machine Learning for High-Speed Corner Detection".
+*/
+
 pub mod opencv_compat;
 
 #[cfg(any(doc, all(any(target_arch = "x86_64"), target_feature = "avx2")))]
@@ -6,7 +12,6 @@ pub mod fast_simd;
 pub mod util;
 
 use image;
-
 
 #[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
 pub struct FastPoint {
@@ -25,8 +30,6 @@ pub struct FastConfig {
     /// Whether to use non maximal suprresion.
     pub non_maximal_supression: bool,
 }
-
-
 
 fn hash_result(points: &[FastPoint]) -> u64 {
     use std::collections::hash_map::DefaultHasher;

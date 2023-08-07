@@ -3,7 +3,7 @@
 The original author's source code can be found here:
     <https://web.archive.org/web/20070708064606/http://mi.eng.cam.ac.uk/~er258/work/fast.html>
 
-It looks like the decision tree as described in rosten2006.pdf "LNCS 3951 - Machine Learning for High-Speed Corner Detection" by Rosten and Drummond.
+It looks like the decision tree as described in rosten2006.pdf "LNCS 3951 - Machine Learning for High-Speed Corner Detection" by Rosten and Drummond, not core algorithm.
 This reference implementation's nonmax suppression can have three keypoints adjecent on a single row, which violates the 9x9 non max suppression guarantees?
 
 
@@ -21,8 +21,8 @@ In this file, I implemented (very naively) logic that is identical to opencv:
     - The non_max_supression_opencv method matches opencv's nonmax suppression for a count of 9.
 
 */
+use crate::{FastConfig, FastPoint};
 use image::{GenericImageView, Luma};
-use crate::{FastPoint, FastConfig};
 
 const DO_PRINTS: bool = false;
 
@@ -167,7 +167,7 @@ pub fn detect(
 /// This is identical to opencv, very inefficient though.
 pub fn non_max_supression_opencv(
     image: &image::GrayImage,
-    keypoints: &[FastPoint]
+    keypoints: &[FastPoint],
 ) -> Vec<FastPoint> {
     // Very inefficient.
     let mut res = vec![];
@@ -185,7 +185,8 @@ pub fn non_max_supression_opencv(
         let offsets = circle();
         for i in 0..difference.len() {
             let pos = circle()[i % offsets.len()];
-            let circle_p = image.get_pixel((x as i32 + pos.0) as u32, (y as i32 + pos.1) as u32)[0] as i16;
+            let circle_p =
+                image.get_pixel((x as i32 + pos.0) as u32, (y as i32 + pos.1) as u32)[0] as i16;
             difference[i] = base_v as i16 - circle_p;
         }
 
