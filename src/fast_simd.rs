@@ -797,8 +797,26 @@ mod test {
             }
 
             let mut extreme_lowest = std::i16::MAX;
+
+            // We only have min _mm256_minpos_epu16. so to do the max, we'll need to subtract diff
+            // from a large enough value.
+            let mut difference_vector = difference_vector_plus_512;
+            let mut difference_vector = _mm256_sub_epi16(_mm256_set1_epi16(-1), difference_vector);
+            println!("diffv:   {}", pl(&difference_vector));
             for k in 0..16 {
                 let max_value_of_9 = *difference[k..(k + 9)].iter().max().unwrap();
+
+                let masked_seq = _mm256_and_si256 (difference_vector, consec_mask);
+                let masked_rem_max = _mm256_or_si256(masked_seq, _mm256_andnot_si256(consec_mask, _mm256_set1_epi8(-1)));
+                let min = _mm256_minpos_epu16(masked_rem_max);
+                difference_vector = _mm256_rotate_across_2(difference_vector);
+                println!("min found: {min}");
+                let min = std::u16::MAX as i16 - min as i16 - 512;
+                println!("min found: {min}");
+                assert_eq!(min, max_value_of_9);
+                
+                // panic!();
+
                 extreme_lowest = extreme_lowest.min(max_value_of_9);
                 // println!("   max_value_of_9; {max_value_of_9:?}  extreme_lowest; {extreme_lowest:?}");
             }
