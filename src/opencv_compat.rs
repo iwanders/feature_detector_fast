@@ -164,6 +164,41 @@ pub fn detect(
     r
 }
 
+pub fn non_max_suppression_opencv_score(image: &image::GrayImage, (x, y): (u32, u32)) -> i16 {
+    // Definition of the paper is, let a cirle point be p and center of the circle c.
+    //     darker: p <= c - t
+    //     similar: c - t < p < c + t
+    //     brigher: c + t <= p
+    //
+    let base_v = image.get_pixel(x, y)[0] as i16;
+
+    // Opencv has hardcoded 9/16, so their wrap-around ringbuffer is 16 + 9 = 25 long.
+    let mut difference = [0i16; 25];
+    let offsets = circle();
+    for i in 0..difference.len() {
+        let pos = circle()[i % offsets.len()];
+        let circle_p =
+            image.get_pixel((x as i32 + pos.0) as u32, (y as i32 + pos.1) as u32)[0] as i16;
+        difference[i] = base_v as i16 - circle_p;
+    }
+
+    // OpenCV calculates the highest / lowest extremum across any consecutive block of 9 pixels.
+    let mut extreme_highest = std::i16::MIN;
+    for k in 0..16 {
+        let min_value_of_9 = *difference[k..(k + 9)].iter().min().unwrap();
+        extreme_highest = extreme_highest.max(min_value_of_9);
+    }
+
+    let mut extreme_lowest = std::i16::MAX;
+    for k in 0..16 {
+        let max_value_of_9 = *difference[k..(k + 9)].iter().max().unwrap();
+        extreme_lowest = extreme_lowest.min(max_value_of_9);
+    }
+
+    // Take the absolute minimum of both to determine the max 't' for which this is a point.
+    extreme_highest.abs().min(extreme_lowest.abs())
+}
+
 /// This is identical to opencv, very inefficient though.
 pub fn non_max_supression_opencv(
     image: &image::GrayImage,
@@ -172,43 +207,8 @@ pub fn non_max_supression_opencv(
     // Very inefficient.
     let mut res = vec![];
 
-    let score = |x, y| {
-        // Definition of the paper is, let a cirle point be p and center of the circle c.
-        //     darker: p <= c - t
-        //     similar: c - t < p < c + t
-        //     brigher: c + t <= p
-        //
-        let base_v = image.get_pixel(x, y)[0] as i16;
-
-        // Opencv has hardcoded 9/16, so their wrap-around ringbuffer is 16 + 9 = 25 long.
-        let mut difference = [0i16; 25];
-        let offsets = circle();
-        for i in 0..difference.len() {
-            let pos = circle()[i % offsets.len()];
-            let circle_p =
-                image.get_pixel((x as i32 + pos.0) as u32, (y as i32 + pos.1) as u32)[0] as i16;
-            difference[i] = base_v as i16 - circle_p;
-        }
-
-        // OpenCV calculates the highest / lowest extremum across any consecutive block of 9 pixels.
-        let mut extreme_highest = std::i16::MIN;
-        for k in 0..16 {
-            let min_value_of_9 = *difference[k..(k + 9)].iter().min().unwrap();
-            extreme_highest = extreme_highest.max(min_value_of_9);
-        }
-
-        let mut extreme_lowest = std::i16::MAX;
-        for k in 0..16 {
-            let max_value_of_9 = *difference[k..(k + 9)].iter().max().unwrap();
-            extreme_lowest = extreme_lowest.min(max_value_of_9);
-        }
-
-        // Take the absolute minimum of both to determine the max 't' for which this is a point.
-        extreme_highest.abs().min(extreme_lowest.abs())
-    };
-
     'kpiter: for kp in keypoints.iter() {
-        let current_score = score(kp.x, kp.y);
+        let current_score = non_max_suppression_opencv_score(image, (kp.x, kp.y));
         if kp.x == 3 || kp.x == image.width() - 4 {
             continue 'kpiter;
         }
@@ -227,7 +227,7 @@ pub fn non_max_supression_opencv(
                     continue;
                 }
 
-                let other_score = score(zx, zy);
+                let other_score = non_max_suppression_opencv_score(image, (zx, zy));
                 if current_score <= other_score {
                     continue 'kpiter;
                 }
