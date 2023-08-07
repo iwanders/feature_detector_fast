@@ -2,6 +2,8 @@
     This implements the FAST feature detector from Rosten & Drummond, 2006.
 
     It follows the description of rosten2006.pdf "LNCS 3951 - Machine Learning for High-Speed Corner Detection".
+
+    The simd implementation is faster than OpenCV's implementation, by almost a factor of two. See the comments in [fast_simd].
 */
 
 pub mod opencv_compat;

@@ -2,14 +2,21 @@
 //! This is a highly optimised implementation of the FAST feature detector.
 //! It makes heavy use of the AVX2 instruction set to achieve the highest possible throughput.
 //!
-//!   - The circle has 16 points, which fits in a single 128 bit instruction lane.
 //!
-//! Definition of the paper is, let a cirle point be p and center of the circle c.
-//!     darker: p <= c - t
-//!     similar: c - t < p < c + t
-//!     brigher: c + t <= p
+//! # Algorithm:
+//!   Extremely concise version of the algorithm.
+//!   - Compare points on a circle against the center point, circle has 16 points.
+//!   - Check if points on the circle exceed center point by a threshold.
+//!   Definition of the paper is, let a cirle point be p and center of the circle c.
+//!     - darker: `p <= c - t`
+//!     - similar: `c - t < p < c + t`
+//!     - brigher: `c + t <= p`
+//!   - If there are more than n consecutive pixels on the circle that are darker, the center point is a feature.
+//!   - If there are more than n consecutive pixels on the circle that are lighter, the center point is a feature.
+//!   - If non maximum suppression is enabled, calculate that for each candidate feature, they only become features if they are the strongest feature compared to their 8 neighbours.
+//!   
 //!
-//! Overall approach is:
+//!# Overall approach is:
 //!   - Iterate through each row.
 //!     - Iterate through the row in blocks of 16 pixels. The center pixels.
 //!     - For each center, determine whether the cardinal directions exceed the threshold.
@@ -18,22 +25,27 @@
 //!       If these match, set a bit to mark it as a potential.
 //!     - Iterate throught potentials and perform the thorough check.
 //!       - Thorough check uses two gather operations to retrieve the entire circle's pixels
-//!       - Wrangle these points into a single 128 bit vector.
+//!       - Wrangle these points (conveniently 16 of them) into a single 128 bit vector.
 //!       - Determine if points exceed the threshold above or below the center point.
 //!       - Reduce the data to a single integer, each bit representing whether the bound is exceeded.
 //!       - Use popcnt to determine if it is a positive or negative keypoint
 //!       - Iterate throught the correct integer, checking if the correct number of consecutive
 //!         value exceeds has been found.
 //!
+//! # Tests
 //! Tests ran on my system (i7-4770TE, from 2014) against a 1920 x 1080 grayscale image from a
 //! computer game.
 //!
-//! Results without non-maximum supression:
+//! #### Results without non-maximum supression:
 //!   - OpenCV takes 18'ish milliseconds to run with a threshold of 16, 9/16 consecutive, no nonmax supression. This finds 23184 keypoints.
 //!   - This implementation takes 10'ish milliseconds, with the same parameters. And finds the same 23184 keypoints.
-//! Results with non-maximum supression:
+//! #### Results with non-maximum supression:
 //!   - OpenCV takes 31'ish milliseconds to run with a threshold of 16, 9/16 consecutive, nonmax supression using maximum 't' for which it is a keypoint. This finds 7646 keypoints.
 //!   - This implementation takes 14'ish milliseconds, with the same parameters. And finds the same 7646 keypoints.
+//!
+//! # Remarks
+//!   - The current non maximum supression score function is the maximum 't' for which a feature would still be a feature.
+//!     According to the paper this score function is often very similar between pixels in an image.
 //!
 
 use crate::{FastConfig, FastPoint};
@@ -828,35 +840,33 @@ mod test {
 
     #[test]
     fn test_47_115_score_calc() {
-        unsafe {
-            // let center = 10;
-            let center = 17;
-            let img = create_sample_image(
-                center,
-                &[
-                    // N              E                S              W
-                    37, 37, 39, 39, 37, 42, 43, 16, 14, 13, 15, 16, 15, 38, 37,
-                    38,
-                    // 1, 2, 3, 4, 5 ,6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
-                ],
-            );
+        // let center = 10;
+        let center = 17;
+        let img = create_sample_image(
+            center,
+            &[
+                // N              E                S              W
+                37, 37, 39, 39, 37, 42, 43, 16, 14, 13, 15, 16, 15, 38, 37,
+                38,
+                // 1, 2, 3, 4, 5 ,6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+            ],
+        );
+        let x = img.width() / 2;
+        let y = img.height() / 2;
+        let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
+        assert_eq!(opencv_nonmax_test_wrapper(&img, (x, y)), 20);
+        assert_eq!(score, 20);
+
+        for i in 0..20000 {
+            println!("i: {i:?}");
+            let img = create_random_image(i);
             let x = img.width() / 2;
             let y = img.height() / 2;
             let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
-            assert_eq!(opencv_nonmax_test_wrapper(&img, (x, y)), 20);
-            assert_eq!(score, 20);
-
-            for i in 0..20000 {
-                println!("i: {i:?}");
-                let img = create_random_image(i);
-                let x = img.width() / 2;
-                let y = img.height() / 2;
-                let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
-                assert_eq!(opencv_nonmax_test_wrapper(&img, (x, y)), score);
-            }
-
-            // Cool, now we have our vector, we just need to... do things, extremely fast.
+            assert_eq!(opencv_nonmax_test_wrapper(&img, (x, y)), score);
         }
+
+        // Cool, now we have our vector, we just need to... do things, extremely fast.
     }
 
     #[test]
@@ -916,7 +926,7 @@ mod test {
 
         let mut calculated_score = 0u16;
         let z = unsafe {
-            determine_keypoint::<false>(
+            determine_keypoint::<true>(
                 &img.as_raw(),
                 &circle_offset,
                 width,
