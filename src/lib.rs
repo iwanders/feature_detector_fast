@@ -72,6 +72,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     if keypoints_simd != keypoints {
         panic!("Keypoints not identical");
     }
+    println!("Found {} keypoints", keypoints.len());
 
     println!("   - -- ");
     let config = FastConfig {
@@ -88,10 +89,10 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let keypoints = opencv_compat::detector(&luma_view, &config);
     println!("normal is: {:?}", start.elapsed());
 
+    println!("Found {} keypoints", keypoints.len());
 
     let hash_keypoints = hash_result(&keypoints);
 
-    println!("Found {} keypoints", keypoints.len());
     // keypoints = keypoints_simd;
 
     // let keypoints = if kp.is_some() {vec![kp.unwrap()]} else {vec![]};
@@ -113,7 +114,11 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Hash of keypoints: 0x{hash_keypoints:x}");
     if hash_keypoints != 0x8bf9cd0f9ca9ebec {
-        // panic!("Not hash equal");
+        panic!("Not hash equal");
+    }
+
+    if keypoints_simd != keypoints {
+        panic!("Suppressed keypoints not identical");
     }
 
     Ok(())

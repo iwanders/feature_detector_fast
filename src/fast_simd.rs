@@ -302,15 +302,37 @@ unsafe fn determine_keypoint(
     None
 }
 
-pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint> {
+// It would be really nice to have feature(adt_const_params) here; https://github.com/rust-lang/rust/issues/95174
+
+
+pub fn detect<const NONMAX: bool>(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint> {
     assert!(
         consecutive >= 9,
         "number of consecutive pixels needs to exceed 9"
     );
 
+
     let height = image.height();
     let width = image.width();
-    let t = t as i16;
+
+
+    // Nonmax suppression works with blocks of 3x3, instead of inserting the keypoints immediately
+    // we will need to keep track of them, until have calculated the neighbours and can properly
+    // evaluate their insertion criteria.
+    // All nonmax related variables are prepended nonmax_, because it is a const parameter, the 
+    // compiler will hopefully optimise them out in the nonmax flavour.
+    //
+    // We will keep a moving window of three rows;
+    // row y-2
+    // row y-1
+    // row y-0, current
+    // At the end of each row, we will iterate through y-1, and finalise keypoints based on whether
+    // the neighbour scores are lower / higher / better, etc.
+    let mut nonmax_pending_insertions: Vec<Option<u16>> = vec![None; width as usize * 3];
+    let (mut nonmax_first, nonmax_second) = nonmax_pending_insertions.split_at_mut(width as usize);
+    let (mut nonmax_second, mut nonmax_third) = nonmax_second.split_at_mut(width as usize);
+    // let nonmax_rows = [nonmax_first, nonmax_second, nonmax_third];
+
     // exists range n where all entries different than p - t.
     let mut r = vec![];
 
@@ -339,6 +361,17 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
             //  n >= 9 : 2/4
             // If that is the case, and only then should we do real work.
             // We'll check this in steps of 16 consecutive pixels (center points) in a row.
+
+            // Create the nonmax rows at the appropriate indices, not elegant :(
+            let mut nonmax_rows = [&mut nonmax_first, &mut nonmax_second, &mut nonmax_third];
+            nonmax_rows.rotate_left(y as usize % 3);
+            let (nonmax_y_2, nonmax_y_1_0) = nonmax_rows.split_at_mut(1);
+            let nonmax_y_2 = &mut nonmax_y_2[0];
+            let (nonmax_y_1, nonmax_y_0) = nonmax_y_1_0.split_at_mut(1);
+            let nonmax_y_1 = &mut nonmax_y_1[0];
+            let nonmax_y_0 = &mut nonmax_y_0[0];
+            // start of the row, clear the current;
+            nonmax_y_0.fill(None);
 
             const STEP_SIZE: usize = 16;
             let x_chunks = (width - 3 - 3) / STEP_SIZE as u32;
@@ -508,7 +541,13 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
                         t as u8,
                         consecutive,
                     ) {
-                        r.push(keypoint);
+                        if !NONMAX {
+                            r.push(keypoint);
+                        } else {
+                            // push into pending for evaluation vector.
+                            let score = crate::opencv_compat::non_max_suppression_opencv_score(image, (xx, y));
+                            nonmax_y_0[xx as usize] = Some(score as u16);
+                        }
                     }
                 }
             }
@@ -521,16 +560,56 @@ pub fn detect(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<FastPoint
                 if let Some(keypoint) =
                     determine_keypoint(data, &circle_offset, width, (x, y), t as u8, consecutive)
                 {
-                    r.push(keypoint);
+                    if !NONMAX {
+                        r.push(keypoint);
+                    } else {
+                        // push into pending for evaluation vector.
+                        let score = crate::opencv_compat::non_max_suppression_opencv_score(image, (x, y));
+                        nonmax_y_0[x as usize] = Some(score as u16);
+                    }
                 }
             }
-        }
+
+            // At the end of the row, if we are doing nonmax, iterate through the appropriate row, and evaluate.
+            // let nonmax_y_2 = &mut nonmax_pending_insertions[nonmax_y_index_2..(nonmax_y_index_2 + width as usize)];
+            // let nonmax_y_1 = &mut nonmax_pending_insertions[nonmax_y_index_1..(nonmax_y_index_1 + width as usize)];
+            // let mut nonmax_y_0 = &mut nonmax_pending_insertions[nonmax_y_index_0..(nonmax_y_index_0 + width as usize)];
+            if NONMAX {
+                if y == 4 {
+                    continue; // Quirk from OpenCV?
+                }
+                let above = &nonmax_y_2;
+                let center = &nonmax_y_1;
+                let below = &nonmax_y_0;
+                for x in 3..(width as usize - 3) {
+                    // check if we even have a point here.
+                    if center[x].is_none(){
+                        continue;
+                    }
+
+                    // our score shorthand
+                    let s = *center[x].as_ref().unwrap();
+                    let exceed_above = s > above[x - 1].unwrap_or(0) && s > above[x - 0].unwrap_or(0) && s > above[x + 1].unwrap_or(0);
+                    let exceed_cntr = s > center[x - 1].unwrap_or(0) && s > center[x + 1].unwrap_or(0);
+                    let exceed_below = s > below[x - 1].unwrap_or(0) && s > below[x - 0].unwrap_or(0) && s > below[x + 1].unwrap_or(0);
+
+                    if (exceed_above && exceed_cntr && exceed_below) {
+                        r.push(FastPoint{x: x as u32, y: y - 1});
+                    }
+                }
+            }
+
+        } // row iteration end.
     }
     r
 }
 
 pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
-    detect(img, config.threshold, config.count)
+    if config.non_maximal_supression {
+        detect::<true>(img, config.threshold, config.count)
+    } else {
+        detect::<false>(img, config.threshold, config.count)
+    }
 }
 
 #[cfg(test)]
