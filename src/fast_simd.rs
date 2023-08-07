@@ -720,15 +720,12 @@ mod test {
                 points[i] = p;
             }
 
-            // _mm_minpos_epu16
-            // __m256i _mm256_unpackhi_epi8 (__m256i a, __m256i b)
-
+            // First, collect the pixels into a vector.
             let pixels = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&points[0]));
+            // duplicate that to both lanes.
             let pixels = _mm256_set_m128i(_mm_set1_epi64x(0), pixels); // combine two 128 into 256
 
             let centers = _mm256_set1_epi16 (base_v);
-
-            // _mm256_unpackhi_epi8
 
             // Perform a permutate to go from:
             // v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 0 0 0 0 0 0 0 0 
@@ -743,21 +740,22 @@ mod test {
                 i64::from_ne_bytes(0x01_00000000u64.to_ne_bytes()),
             );
 
-            let pixels_two_lanes = _mm256_permutevar8x32_epi32(pixels, idx);
-            // println!("pixels: {}", pl(&pixels));
-            // println!("acr:    {}", pl(&pixels_two_lanes));
 
+            let pixels_two_lanes = _mm256_permutevar8x32_epi32(pixels, idx);
+            // So now we have 8 pixels in the left, and 8 pixels in the right lane.
+
+            // Next, we unpack that from:
+            // v0 v1 v2 v3 v4 v5 v6 v7 0 0 0 0 0 0 0 0
+            // to
+            // v0 0  v1 0 v2 0 v3 0  v4 0 v5 0 v6 0 v7 0
             let zeros = _mm256_set1_epi64x(0);
             let as_i16 = _mm256_unpacklo_epi8(pixels_two_lanes, zeros);
-            // println!("as_i16:  {}", pl(&as_i16));
-            // let first_value = _mm256_extract_epi16 (as_i16, 0);
+            // So now we have an mm256 vector with u16 / i16 values.
 
 
-            let difference_vector = _mm256_sub_epi16(centers, as_i16);
-            println!("diffv:   {}", pl(&difference_vector));
-
-            
+            // Calculate the difference vector, but offset centers by 512 to stay all positive.
             let difference_vector_plus_512 = _mm256_sub_epi16(_mm256_add_epi16(centers, _mm256_set1_epi16(512)), as_i16);
+            // Make that mutable, we'll rotate it as we go along.
             let mut difference_vector = difference_vector_plus_512;
 
             // Next up, create a mask of 'consecutive' long.
@@ -767,54 +765,56 @@ mod test {
                 consec_mask[i] = 0xffff;
             }
             let consec_mask = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&consec_mask[0]));
+            let and_not_mask = _mm256_andnot_si256(consec_mask, _mm256_set1_epi8(-1));
             
-            
-            // Opencv has hardcoded 9/16, so their wrap-around ringbuffer is 16 + 9 = 25 long.
 
-            // OpenCV calculates the highest / lowest extremum across any consecutive block of 9 pixels.
+            // Allocate vectors to hold the min and max value found in each 'consecutive' block.
             let mut min_values = [0x0u16; 16];
+            let mut max_values = [0xFFFFu16; 16];
+
+            // Iterate over all 16 possible rotations.
             for k in 0..16 {
-                // let min_value_of_9 = *difference[k..(k + 9)].iter().min().unwrap();
+                // Calculate the minimum in this sequence.
+                {
+                    let masked_seq = _mm256_and_si256 (difference_vector, consec_mask);
+                    let masked_rem_max = _mm256_or_si256(masked_seq, and_not_mask);
 
-                // Mask difference vector with consec mask.
-                let masked_seq = _mm256_and_si256 (difference_vector, consec_mask);
-                let masked_rem_max = _mm256_or_si256(masked_seq, _mm256_andnot_si256(consec_mask, _mm256_set1_epi8(-1)));
-                let calculated_min = _mm256_minpos_epu16(masked_rem_max);
+                    // Retrieve the minimum u16 in the vector and store that.
+                    let calculated_min = _mm256_minpos_epu16(masked_rem_max);
+                    min_values[k] = calculated_min;
+                }
 
-                min_values[k] = calculated_min;
+                // Calculate the maximum in this sequence.
+                {
+                    // We only have min _mm256_minpos_epu16. so to do the max, we'll need to subtract diff
+                    // from a large enough value.
+                    let difference_vector_from_top = _mm256_sub_epi16(_mm256_set1_epi16(-1), difference_vector);
+                    let masked_seq = _mm256_and_si256 (difference_vector_from_top, consec_mask);
+                    let masked_rem_max = _mm256_or_si256(masked_seq, and_not_mask);
 
+                    // Retrieve the minimum u16 in the vector and store that.
+                    let calculated_max = _mm256_minpos_epu16(masked_rem_max);
+                    max_values[k] = calculated_max;
+                }
+
+                // Then, rotate the vector.
                 difference_vector = _mm256_rotate_across_2(difference_vector);
             }
+
 
             // Now, we need a max operation.
             let min_values_vector = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&min_values[0]));
             let min_values_from_top = _mm256_sub_epi16(_mm256_set1_epi16(1024), min_values_vector);
             let lowest_min_values = _mm256_minpos_epu16(min_values_from_top);
+            // And finally translate this back to a signed value.
             let extreme_highest = 1024 - lowest_min_values as i16  - 512;
-            // assert_eq!(extreme_highest, extreme_highest_from_vector);
 
-
-            // We only have min _mm256_minpos_epu16. so to do the max, we'll need to subtract diff
-            // from a large enough value.
-            let difference_vector = difference_vector_plus_512;
-            let mut difference_vector = _mm256_sub_epi16(_mm256_set1_epi16(-1), difference_vector);
-            let mut max_values = [0xFFFFu16; 16];
-            // println!("diffv:   {}", pl(&difference_vector));
-            for k in 0..16 {
-                // let max_value_of_9 = *difference[k..(k + 9)].iter().max().unwrap();
-
-                let masked_seq = _mm256_and_si256 (difference_vector, consec_mask);
-                let masked_rem_max = _mm256_or_si256(masked_seq, _mm256_andnot_si256(consec_mask, _mm256_set1_epi8(-1)));
-                let calculated_max = _mm256_minpos_epu16(masked_rem_max);
-                difference_vector = _mm256_rotate_across_2(difference_vector);
-
-                max_values[k] = calculated_max;
-
-            }
+            // And our min operation.
             let max_values_vector = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&max_values[0]));
             let max_values_from_top = _mm256_sub_epi16(_mm256_set1_epi16(1024), max_values_vector);
             let lowest_max_values = _mm256_minpos_epu16(max_values_from_top);
-            let extreme_lowest = -(1024 - lowest_max_values as i16 + 512) - 1;  // pretty sure this is a reinterpret cast.
+            // And finally translate this back to a signed value.
+            let extreme_lowest = (lowest_max_values  - (1024 + 512 + 1)) as i16;
 
             // Take the absolute minimum of both to determine the max 't' for which this is a point.
             let res = extreme_highest.abs().min(extreme_lowest.abs()) as u16;
