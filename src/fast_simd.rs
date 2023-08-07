@@ -62,7 +62,9 @@ unsafe fn pi(input: &__m128i) -> String {
 unsafe fn pl(input: &__m256i) -> String {
     let v: [u8; 32] = [0; 32];
     _mm256_storeu_si256(v.as_ptr() as *mut _, *input);
-    format!("{:02X?}", v)
+    format!("{} | {}",
+    format!("{:02X?}", &v[0..16]),
+    format!("{:02X?}", &v[16..]))
 }
 
 const DO_PRINTS: bool = false;
@@ -124,6 +126,39 @@ unsafe fn _mm_cmpgt_epu8(a: __m128i, b: __m128i) -> __m128i {
         _mm_xor_si128(a, _mm_set1_epi8(-128)), // range-shift to unsigned
         _mm_xor_si128(b, _mm_set1_epi8(-128)),
     )
+}
+
+unsafe fn _mm256_minpos_epu16(v: __m256i) -> u16 {
+    let lower = _mm256_extracti128_si256 (v, 0);
+    let upper = _mm256_extracti128_si256 (v, 1);
+    let lower_lowest = _mm_minpos_epu16(lower);
+    let upper_lowest = _mm_minpos_epu16(upper);
+    let lower_lowest = _mm_extract_epi16 (lower_lowest, 0);
+    let upper_lowest = _mm_extract_epi16 (upper_lowest, 0);
+    lower_lowest.min(upper_lowest) as u16
+}
+
+unsafe fn _mm256_rotate_across_2( difference_vector: __m256i) -> __m256i {
+    // __m256i _mm256_alignr_epi8 (__m256i a, __m256i b, const int imm8)
+    let rotated = _mm256_alignr_epi8(difference_vector, difference_vector, 2);
+    // println!("r:       {}", pl(&rotated));
+
+    // Gah, that's per lane... so we need to swap the top of both lanes.
+    // __m256i _mm256_insert_epi16 (__m256i a, __int16 i, const int index)
+
+    let rotated_swap = _mm256_permute2x128_si256 (rotated, rotated, 1);
+    // println!("rswap    {}", pl(&rotated_swap));
+
+    // Cool, with the lanes swapped, we can blend the two lanes;
+    let mask = _mm256_set_epi64x(
+        i64::from_ne_bytes(0xFFFF0000_00000000u64.to_ne_bytes()),
+        i64::from_ne_bytes(0x00000000_00000000u64.to_ne_bytes()),
+        i64::from_ne_bytes(0xFFFF0000_00000000u64.to_ne_bytes()),
+        i64::from_ne_bytes(0x00000000_00000000u64.to_ne_bytes()),
+    );
+    let rotated = _mm256_blendv_epi8 (rotated, rotated_swap, mask);
+    // println!("rot      {}", pl(&rotated));
+    rotated
 }
 
 // This inline keyword actually makes a difference.
@@ -709,69 +744,68 @@ mod test {
             );
 
             let pixels_two_lanes = _mm256_permutevar8x32_epi32(pixels, idx);
-            println!("pixels: {}", pl(&pixels));
-            println!("acr:    {}", pl(&pixels_two_lanes));
+            // println!("pixels: {}", pl(&pixels));
+            // println!("acr:    {}", pl(&pixels_two_lanes));
 
             let zeros = _mm256_set1_epi64x(0);
             let as_i16 = _mm256_unpacklo_epi8(pixels_two_lanes, zeros);
-            println!("as_i16:  {}", pl(&as_i16));
+            // println!("as_i16:  {}", pl(&as_i16));
             // let first_value = _mm256_extract_epi16 (as_i16, 0);
+
 
             let difference_vector = _mm256_sub_epi16(centers, as_i16);
             println!("diffv:   {}", pl(&difference_vector));
-            // let first_value = _mm256_extract_epi16 (difference_vector, 0);
-            // println!("first_value:    {}", first_value);
 
 
-            // panic!("bye");
-
-            // Lets expand those pixels into i16s
-
-            // Opencv has hardcoded 9/16, so their wrap-around ringbuffer is 16 + 9 = 25 long.
             let mut difference = [0i16; 32];
             _mm256_storeu_si256(
                         std::mem::transmute::<_, *mut __m256i>(&mut difference[0]), difference_vector);
 
             _mm256_storeu_si256(
                         std::mem::transmute::<_, *mut __m256i>(&mut difference[16]), difference_vector);
-            /*
-            let mut above = [255i16; 25];
-            let mut below = [0i16; 25];
-            let offsets = circle();
-            for i in 0..difference.len() {
-                let pos = circle()[i % offsets.len()];
-                let circle_p =
-                    image.get_pixel((x as i32 + pos.0) as u32, (y as i32 + pos.1) as u32)[0] as i16;
-                difference[i] = base_v as i16 - circle_p;
-                if (base_v as i16) < circle_p {
-                    below[i] = (circle_p - base_v as i16 ).abs() as i16;
-                } else {
-                    above[i] = (base_v as i16 - circle_p).abs() as i16;
-                }
-            }*/
-            println!("Difference; {difference: >4?}");
-            // println!("above;      {above: >4?}");
-            // println!("below;      {below: >4?}");
+ 
 
+            
+            let difference_vector_plus_512 = _mm256_sub_epi16(_mm256_add_epi16(centers, _mm256_set1_epi16(512)), as_i16);
+            let mut difference_vector = difference_vector_plus_512;
+
+            // Next up, create a mask of 'consecutive' long.
+            let consecutive = 9;
+            let mut consec_mask = [0u16; 16];
+            for i in 0..consecutive {
+                consec_mask[i] = 0xffff;
+            }
+            let consec_mask = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&consec_mask[0]));
+            
+            
+            // Opencv has hardcoded 9/16, so their wrap-around ringbuffer is 16 + 9 = 25 long.
 
             // OpenCV calculates the highest / lowest extremum across any consecutive block of 9 pixels.
             let mut extreme_highest = std::i16::MIN;
             for k in 0..16 {
                 let min_value_of_9 = *difference[k..(k + 9)].iter().min().unwrap();
+
+                // Mask difference vector with consec mask.
+                let masked_seq = _mm256_and_si256 (difference_vector, consec_mask);
+                let masked_rem_max = _mm256_or_si256(masked_seq, _mm256_andnot_si256(consec_mask, _mm256_set1_epi8(-1)));
+                let min = _mm256_minpos_epu16(masked_rem_max) as i16 - 512;
+                difference_vector = _mm256_rotate_across_2(difference_vector);
+                assert_eq!(min_value_of_9, min);
+                // panic!();
                 extreme_highest = extreme_highest.max(min_value_of_9);
-                println!("  min_value_of_9; {min_value_of_9:?}    extreme_highest; {extreme_highest:?}");
+                // println!("  min_value_of_9; {min_value_of_9:?}    extreme_highest; {extreme_highest:?}");
             }
 
             let mut extreme_lowest = std::i16::MAX;
             for k in 0..16 {
                 let max_value_of_9 = *difference[k..(k + 9)].iter().max().unwrap();
                 extreme_lowest = extreme_lowest.min(max_value_of_9);
-                println!("   max_value_of_9; {max_value_of_9:?}  extreme_lowest; {extreme_lowest:?}");
+                // println!("   max_value_of_9; {max_value_of_9:?}  extreme_lowest; {extreme_lowest:?}");
             }
 
             // Take the absolute minimum of both to determine the max 't' for which this is a point.
             let res = extreme_highest.abs().min(extreme_lowest.abs()) as u16;
-            println!("  res; {res:?}");
+            // println!("  res; {res:?}");
 
             res
         }
@@ -780,6 +814,7 @@ mod test {
     #[test]
     fn test_47_115_score_calc() {
         unsafe {
+            // let center = 10;
             let center = 17;
             let img = create_sample_image(
                 center,
@@ -792,8 +827,8 @@ mod test {
             let x = img.width() / 2;
             let y = img.height() / 2;
             let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
-            assert_eq!(score, 20);
             assert_eq!(zzz(&img, (x, y)), 20);
+            assert_eq!(score, 20);
 
             for i in 0..20 {
                 println!("i: {i:?}");
@@ -949,6 +984,50 @@ mod test {
             // __m256i _mm256_permutevar8x32_epi32 (__m256i a, __m256i idx)
             let tmp = _mm256_permutevar8x32_epi32(combined, idx);
             println!("             {}", pl(&tmp));
+        }
+    }
+
+    #[test]
+    fn test_mm256_minpos_epu16() {
+        use rand_xoshiro::rand_core::{SeedableRng, RngCore};
+        use rand_xoshiro::Xoshiro256PlusPlus;
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
+        unsafe {
+            for i in 0..100000 {
+                let mut indices = [0u16; 16];
+                for k in 0..16 {
+                    indices[k] = rng.next_u32() as u16;
+                }
+
+                let indices_vector = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&indices[0]));
+                let min_simd = _mm256_minpos_epu16(indices_vector);
+                assert_eq!(min_simd, *indices.iter().min().unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn test_mm256_rotate_across_2() {
+        use rand_xoshiro::rand_core::{SeedableRng, RngCore};
+        use rand_xoshiro::Xoshiro256PlusPlus;
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
+        unsafe {
+            for i in 0..100000 {
+                let mut indices = [0u16; 16];
+                for k in 0..16 {
+                    indices[k] = rng.next_u32() as u16;
+                }
+
+                let indices_vector = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&indices[0]));
+                let rotated_indices = _mm256_rotate_across_2(indices_vector);
+                let mut back_to_thing = [0u16; 16];
+                _mm256_storeu_si256(std::mem::transmute::<_, *mut __m256i>(&mut back_to_thing[0]), rotated_indices);
+
+                // Rotate with rust;
+                indices.rotate_left(1);
+
+                assert_eq!(indices, back_to_thing);
+            }
         }
     }
 }
