@@ -47,7 +47,7 @@ The `consecutive >= 9` was chosen because that is the only flavour OpenCV implem
       - Iterate throught the correct integer, checking if the correct number of consecutive
         value exceeds has been found.
 
-## Tests
+## Performance
 Tests ran on my system (i7-4770TE, from 2014) against a 1920 x 1080 grayscale image from a
 computer game.
 
