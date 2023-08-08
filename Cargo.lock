@@ -146,6 +146,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "feature_detector_fast"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "rand_xoshiro",
+]
+
+[[package]]
 name = "flate2"
 version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -253,14 +261,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5f195fe497f702db0f318b07fdd68edb16955aed830df8363d837542f8f935a"
 dependencies = [
  "wasm-bindgen",
-]
-
-[[package]]
-name = "keypoint_detector"
-version = "0.1.0"
-dependencies = [
- "image",
- "rand_xoshiro",
 ]
 
 [[package]]
