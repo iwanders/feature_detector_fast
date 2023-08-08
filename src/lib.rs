@@ -21,7 +21,21 @@ pub struct FastPoint {
     pub y: u32,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+/// Modes of non maximal suppression, this filters feature candidates to ensure only the strongest
+/// points from the 8 neighbours are selected.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum NonMaximalSuppression {
+    /// No non maximal suppression, all features satisfying the consecutive circle threshold are
+    /// returned as keypoints.
+    Off,
+    /// Use the maximum t for which this feature would still be a feature. This is what OpenCV uses.
+    MaxThreshold,
+    /// Take the absolute sum of all pixels in the dark or light set. This is what the authors
+    /// recommend, and it is extremely cheap to calculate.
+    SumAbsolute,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct FastConfig {
     /// Value to be exceeded.
     pub threshold: u8,
@@ -30,7 +44,7 @@ pub struct FastConfig {
     pub count: u8,
 
     /// Whether to use non maximal suprresion.
-    pub non_maximal_supression: bool,
+    pub non_maximal_supression: NonMaximalSuppression,
 }
 
 fn hash_result(points: &[FastPoint]) -> u64 {
@@ -60,7 +74,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let config = FastConfig {
         threshold: 16,
         count: 9,
-        non_maximal_supression: false,
+        non_maximal_supression: NonMaximalSuppression::Off,
     };
 
     let start = std::time::Instant::now();
@@ -89,7 +103,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let config = FastConfig {
         threshold: 16,
         count: 9,
-        non_maximal_supression: true,
+        non_maximal_supression: NonMaximalSuppression::MaxThreshold,
     };
 
     let start = std::time::Instant::now();

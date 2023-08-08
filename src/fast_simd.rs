@@ -707,6 +707,23 @@ pub fn keypoint_score_max_threshold(base_v: u8, pixels: __m128i, consecutive: u8
     }
 }
 
+pub fn keypoint_score_sum_abs_difference(pixels: __m128i, centers: __m128i, is_above: __m128i, is_below: __m128i, threshold: __m128i) -> u16 {
+    unsafe {
+        // trace!("centers       {}", pi(&centers));
+        // trace!("pixels        {}", pi(&pixels));
+        // trace!("threshold     {}", pi(&threshold));
+        let values_bright = _mm_and_si128(_mm_subs_epu8(_mm_subs_epu8(centers, pixels), threshold), is_below);
+        let values_dark = _mm_and_si128(_mm_subs_epu8(_mm_subs_epu8(pixels, centers), threshold), is_above);
+        // trace!("is_above      {}", pi(&is_above));
+        // trace!("is_below      {}", pi(&is_below));
+        // trace!("values_bright {}", pi(&values_bright));
+        // trace!("values_dark   {}", pi(&values_dark));
+        let bright = _mm_sum_epu8(values_bright);
+        let dark = _mm_sum_epu8(values_dark);
+        bright.max(dark) as u16
+    }
+}
+
 
 
 /// Compare u8 types in a m128 vector.
@@ -782,10 +799,13 @@ unsafe fn pl(input: &__m256i) -> String {
 }
 
 pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
-    if config.non_maximal_supression {
-        detect::<true>(img, config.threshold, config.count)
-    } else {
+    // if config.non_maximal_supression {
+
+    if config.non_maximal_supression == crate::NonMaximalSuppression::Off {
         detect::<false>(img, config.threshold, config.count)
+    } else {
+        detect::<true>(img, config.threshold, config.count)
+    // } else {)
     }
 }
 
@@ -1096,48 +1116,6 @@ mod test {
         use rand_xoshiro::Xoshiro256PlusPlus;
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
         unsafe {
-            // Pretty much as clear as I can write it.
-            fn score_function_3(base_v: u8, circle: &[u8], t: u8) -> u16 {
-                // println!("              base: {base_v:02x}, t: {t:02x}, circle: {circle:02x?}");
-                let mut sum_dark: u16 = 0;
-                let mut sum_light: u16 = 0;
-                assert_eq!(circle.len(), 16);
-                let mut _values_dark = [0u8; 16];
-                let mut _values_light = [0u8; 16];
-                for i in 0..circle.len() {
-                    let d = base_v as i16 - circle[i] as i16;
-                    if d > 0 && d.abs() > (t as i16) {
-                        let value = (base_v - circle[i]) - t;
-                        _values_light[i] = value;
-                        sum_light += value as u16;
-                    }
-                    if d < 0 && d.abs() > (t as i16) {
-                        let value = (circle[i] - base_v) - t;
-                        _values_dark[i] = value;
-                        sum_dark += value as u16;
-                    }
-                }
-                // println!("_values_light {_values_light:02x?}");
-                // println!("_values_dark  {_values_dark:02x?}");
-                // println!("{sum_dark}, {sum_light}");
-                sum_dark.max(sum_light)
-            }
-
-            unsafe fn keypoint_score_sum_abs_difference(pixels: __m128i, centers: __m128i, is_above: __m128i, is_below: __m128i, threshold: __m128i) -> u16 {
-                // trace!("centers       {}", pi(&centers));
-                // trace!("pixels        {}", pi(&pixels));
-                // trace!("threshold     {}", pi(&threshold));
-                let values_bright = _mm_and_si128(_mm_subs_epu8(_mm_subs_epu8(centers, pixels), threshold), is_below);
-                let values_dark = _mm_and_si128(_mm_subs_epu8(_mm_subs_epu8(pixels, centers), threshold), is_above);
-                // trace!("is_above      {}", pi(&is_above));
-                // trace!("is_below      {}", pi(&is_below));
-                // trace!("values_bright {}", pi(&values_bright));
-                // trace!("values_dark   {}", pi(&values_dark));
-                let bright = _mm_sum_epu8(values_bright);
-                let dark = _mm_sum_epu8(values_dark);
-                bright.max(dark) as u16
-            }
-
             for _i in 0..10000000 {
                 let mut circle = [0u8; 16];
                 for k in 0..16 {
@@ -1146,7 +1124,7 @@ mod test {
                 let base_v = rng.next_u32() as u8;
                 let t = rng.next_u32() as u8;
 
-                let score_without_simd = score_function_3(base_v, &circle, t);
+                let score_without_simd = crate::opencv_compat::score_non_max_supression_max_abs_sum(base_v, &circle, t);
 
                 let m128_center = _mm_set1_epi8 (i8::from_ne_bytes(base_v.to_ne_bytes()));
                 let m128_threshold = _mm_set1_epi8 (i8::from_ne_bytes(t.to_ne_bytes()));

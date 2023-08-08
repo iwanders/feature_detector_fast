@@ -199,16 +199,27 @@ pub fn non_max_suppression_opencv_score(image: &image::GrayImage, (x, y): (u32, 
     extreme_highest.abs().min(extreme_lowest.abs()) as u16
 }
 
-/// This is identical to opencv, very inefficient though.
-pub fn non_max_supression_opencv(
+/// Calculate the non max suppression.
+pub fn non_max_supression(
     image: &image::GrayImage,
-    keypoints: &[FastPoint],
+    keypoints: Vec<FastPoint>,
+    config: &crate::FastConfig,
 ) -> Vec<FastPoint> {
+    if config.non_maximal_supression == crate::NonMaximalSuppression::Off {
+        return keypoints;
+    }
+
+    let score_function: Box<dyn Fn((u32, u32))->u16>  = match config.non_maximal_supression {
+        crate::NonMaximalSuppression::MaxThreshold => Box::new(|p: (u32, u32)| non_max_suppression_opencv_score(image, p)),
+        crate::NonMaximalSuppression::SumAbsolute => Box::new(|p: (u32, u32)| non_max_suppression_max_abs(image, p, config.threshold)),
+        crate::NonMaximalSuppression::Off => {unreachable!()},
+    };
+
     // Very inefficient.
     let mut res = vec![];
 
     'kpiter: for kp in keypoints.iter() {
-        let current_score = non_max_suppression_opencv_score(image, (kp.x, kp.y));
+        let current_score = score_function((kp.x, kp.y));
         if kp.y == 3 || kp.y == image.height() - 4 { 
             continue;
         }
@@ -224,7 +235,7 @@ pub fn non_max_supression_opencv(
                     continue;
                 }
 
-                let other_score = non_max_suppression_opencv_score(image, (zx, zy));
+                let other_score = score_function((zx, zy));
                 if current_score <= other_score {
                     continue 'kpiter;
                 }
@@ -235,13 +246,48 @@ pub fn non_max_supression_opencv(
     res
 }
 
+
+pub fn non_max_suppression_max_abs(image: &image::GrayImage, (x, y): (u32, u32), t: u8) -> u16 {
+    let base_v = image.get_pixel(x, y)[0];
+
+    let mut values = [0u8; 16];
+    let offsets = circle();
+    for i in 0..values.len() {
+        let pos = circle()[i];
+        let circle_p = image.get_pixel((x as i32 + pos.0) as u32, (y as i32 + pos.1) as u32)[0];
+        values[i] = circle_p;
+    }
+    score_non_max_supression_max_abs_sum(base_v, &values, t)
+}
+// Pretty much as clear as I can write it.
+pub fn score_non_max_supression_max_abs_sum(base_v: u8, circle: &[u8], t: u8) -> u16 {
+    // println!("              base: {base_v:02x}, t: {t:02x}, circle: {circle:02x?}");
+    let mut sum_dark: u16 = 0;
+    let mut sum_light: u16 = 0;
+    assert_eq!(circle.len(), 16);
+    let mut _values_dark = [0u8; 16];
+    let mut _values_light = [0u8; 16];
+    for i in 0..circle.len() {
+        let d = base_v as i16 - circle[i] as i16;
+        if d > 0 && d.abs() > (t as i16) {
+            let value = (base_v - circle[i]) - t;
+            _values_light[i] = value;
+            sum_light += value as u16;
+        }
+        if d < 0 && d.abs() > (t as i16) {
+            let value = (circle[i] - base_v) - t;
+            _values_dark[i] = value;
+            sum_dark += value as u16;
+        }
+    }
+    sum_dark.max(sum_light)
+}
+
+
 pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
     let r = detect(img, config.threshold, config.count);
 
-    if config.non_maximal_supression {
-        return non_max_supression_opencv(img, &r);
-    }
-    r
+    non_max_supression(img, r, config)
 }
 
 #[cfg(test)]
