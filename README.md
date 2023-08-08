@@ -1,11 +1,8 @@
 # Feature Detector FAST
 
-This is a highly optimised implementation of the FAST feature detector, 
+This is a highly optimised implementation of the FAST feature detector, described in "Machine Learning for High-Speed Corner Detection" by Rosten and Drummond, [doi](https://link.springer.com/chapter/10.1007/11744023_34).
 
-https://doi.org/10.1007/11744023_34
-
-It follows the description of rosten2006.pdf "LNCS 3951 - Machine Learning for High-Speed Corner Detection".
-It's results are equivalent to the output of OpenCV. Runtime is almost half of OpenCV.
+The found features from this crate are equivalent to the output of OpenCV. Runtime is almost half of OpenCV with identical image and parameters.
 
 It makes heavy use of the AVX2 instruction set to achieve the highest possible throughput.
 
