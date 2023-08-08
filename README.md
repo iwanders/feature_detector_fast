@@ -49,3 +49,7 @@ computer game.
 ## Remarks
   - The current non maximum supression score function is the maximum 't' for which a feature would still be a feature.
     According to the paper this score function is often very similar between pixels in an image.
+
+
+## License
+License is `BSD-3-Clause`.
