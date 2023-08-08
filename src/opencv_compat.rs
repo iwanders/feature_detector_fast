@@ -209,6 +209,9 @@ pub fn non_max_supression_opencv(
 
     'kpiter: for kp in keypoints.iter() {
         let current_score = non_max_suppression_opencv_score(image, (kp.x, kp.y));
+        if kp.y == 3 || kp.y == image.height() - 4 { 
+            continue;
+        }
         for dx in [-1i32, 0, 1] {
             for dy in [-1i32, 0, 1] {
                 if dx == 0 && dy == 0 {
