@@ -707,6 +707,8 @@ pub fn keypoint_score_max_threshold(base_v: u8, pixels: __m128i, consecutive: u8
     }
 }
 
+
+
 /// Compare u8 types in a m128 vector.
 ///  https://stackoverflow.com/a/24234695
 unsafe fn _mm_cmpgt_epu8(a: __m128i, b: __m128i) -> __m128i {
@@ -750,6 +752,13 @@ unsafe fn _mm256_rotate_across_2(difference_vector: __m256i) -> __m256i {
     let rotated = _mm256_blendv_epi8(rotated, rotated_swap, mask);
     // println!("rot      {}", pl(&rotated));
     rotated
+}
+
+/// Horizontally sum a vector of u8's.
+// https://stackoverflow.com/a/36998778
+unsafe fn _mm_sum_epu8(v: __m128i) -> u32 {
+    let vsum = _mm_sad_epu8(v, _mm_setzero_si128());
+    u32::from_ne_bytes((_mm_cvtsi128_si32(vsum) + _mm_extract_epi16(vsum, 4)).to_ne_bytes())
 }
 
 #[allow(dead_code)]
@@ -1025,6 +1034,25 @@ mod test {
     }
 
     #[test]
+    fn test_mm_sum_epu8() {
+        use rand_xoshiro::rand_core::{RngCore, SeedableRng};
+        use rand_xoshiro::Xoshiro256PlusPlus;
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
+        unsafe {
+            for _i in 0..100000 {
+                let mut indices = [0u8; 16];
+                for k in 0..16 {
+                    indices[k] = rng.next_u32() as u8;
+                }
+
+                let indices_vector = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&indices[0]));
+                let sum_simd = _mm_sum_epu8(indices_vector);
+                assert_eq!(sum_simd, indices.iter().map(|x| *x as u32).sum::<u32>());
+            }
+        }
+    }
+
+    #[test]
     fn test_mm256_rotate_across_2() {
         use rand_xoshiro::rand_core::{RngCore, SeedableRng};
         use rand_xoshiro::Xoshiro256PlusPlus;
@@ -1049,6 +1077,94 @@ mod test {
                 indices.rotate_left(1);
 
                 assert_eq!(indices, back_to_thing);
+            }
+        }
+    }
+
+    #[test]
+    fn test_score_function_3() {
+        // The sum of the absolute difference between the pixels in the contiguous arc and the centre pixel.
+        // p is circle, c is center
+        // \sigma_{x\in Sbright}|I_p - I_c| - t
+        // \sigma_{x\in Sdark}|I_c - I_p| - t
+        // - darker: `p <= c - t`
+        // - similar: `c - t < p < c + t`
+        // - brigher: `c + t <= p`
+        // Both |I_p - I_c| and |I_c - I_p| are always positive, since they must exceed the threshold.
+        // So all we need to do is take the differences, subtract t, mask with cmp, and finally sum it.
+        use rand_xoshiro::rand_core::{RngCore, SeedableRng};
+        use rand_xoshiro::Xoshiro256PlusPlus;
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
+        unsafe {
+            // Pretty much as clear as I can write it.
+            fn score_function_3(base_v: u8, circle: &[u8], t: u8) -> u16 {
+                // println!("              base: {base_v:02x}, t: {t:02x}, circle: {circle:02x?}");
+                let mut sum_dark: u16 = 0;
+                let mut sum_light: u16 = 0;
+                assert_eq!(circle.len(), 16);
+                let mut _values_dark = [0u8; 16];
+                let mut _values_light = [0u8; 16];
+                for i in 0..circle.len() {
+                    let d = base_v as i16 - circle[i] as i16;
+                    if d > 0 && d.abs() > (t as i16) {
+                        let value = (base_v - circle[i]) - t;
+                        _values_light[i] = value;
+                        sum_light += value as u16;
+                    }
+                    if d < 0 && d.abs() > (t as i16) {
+                        let value = (circle[i] - base_v) - t;
+                        _values_dark[i] = value;
+                        sum_dark += value as u16;
+                    }
+                }
+                // println!("_values_light {_values_light:02x?}");
+                // println!("_values_dark  {_values_dark:02x?}");
+                // println!("{sum_dark}, {sum_light}");
+                sum_dark.max(sum_light)
+            }
+
+            unsafe fn keypoint_score_sum_abs_difference(pixels: __m128i, centers: __m128i, is_above: __m128i, is_below: __m128i, threshold: __m128i) -> u16 {
+                // trace!("centers       {}", pi(&centers));
+                // trace!("pixels        {}", pi(&pixels));
+                // trace!("threshold     {}", pi(&threshold));
+                let values_bright = _mm_and_si128(_mm_subs_epu8(_mm_subs_epu8(centers, pixels), threshold), is_below);
+                let values_dark = _mm_and_si128(_mm_subs_epu8(_mm_subs_epu8(pixels, centers), threshold), is_above);
+                // trace!("is_above      {}", pi(&is_above));
+                // trace!("is_below      {}", pi(&is_below));
+                // trace!("values_bright {}", pi(&values_bright));
+                // trace!("values_dark   {}", pi(&values_dark));
+                let bright = _mm_sum_epu8(values_bright);
+                let dark = _mm_sum_epu8(values_dark);
+                bright.max(dark) as u16
+            }
+
+            for _i in 0..10000000 {
+                let mut circle = [0u8; 16];
+                for k in 0..16 {
+                    circle[k] = rng.next_u32() as u8;
+                }
+                let base_v = rng.next_u32() as u8;
+                let t = rng.next_u32() as u8;
+
+                let score_without_simd = score_function_3(base_v, &circle, t);
+
+                let m128_center = _mm_set1_epi8 (i8::from_ne_bytes(base_v.to_ne_bytes()));
+                let m128_threshold = _mm_set1_epi8 (i8::from_ne_bytes(t.to_ne_bytes()));
+                let p =  _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&circle[0]));
+
+                // Now, we can calculate the lower and upper bounds.
+                let upper_bound = _mm_adds_epu8(m128_center, m128_threshold);
+                let lower_bound = _mm_subs_epu8(m128_center, m128_threshold);
+                // trace!("upper_bound {}", pi(&upper_bound));
+                // trace!("lower_bound {}", pi(&lower_bound));
+
+                // Perform the compare.
+                let is_above = _mm_cmpgt_epu8(p, upper_bound);
+                let is_below = _mm_cmpgt_epu8(lower_bound, p);
+                // trace!("is_above    {}", pi(&is_above));
+                // trace!("is_below    {}", pi(&is_below));
+                let with_simd = keypoint_score_sum_abs_difference(p, m128_center, is_above, is_below, m128_threshold);
+                assert_eq!(score_without_simd, with_simd);
             }
         }
     }
