@@ -1,10 +1,22 @@
 # Feature Detector FAST
 
-This is a highly optimised implementation of the FAST feature detector, described in "Machine Learning for High-Speed Corner Detection" by Rosten and Drummond, [doi](https://link.springer.com/chapter/10.1007/11744023_34).
+This is a highly optimised implementation of the FAST feature detector, described in "Machine Learning for High-Speed Corner Detection" by Rosten and Drummond, [doi](https://doi.org/10.1007/11744023_34).
 
 The found features from this crate are equivalent to the output of OpenCV. Runtime is almost half of OpenCV with identical image and parameters.
 
 It makes heavy use of the AVX2 instruction set to achieve the highest possible throughput.
+
+## Example
+Example images to give an idea (left to right): RGB input, Grayscale, features detected with `threshold = 16`, `consecutive >= 9`, and the same with non-max suppression.
+
+<p align="middle">
+  <img src="/media/Screenshot315_torch.png" width="20%" />
+  <img src="/media/Screenshot315_torch_grey.png" width="20%" /> 
+  <img src="/media/with_rust_threshold_16_consecutive_9.png" width="20%" />
+  <img src="/media/with_rust_threshold_16_consecutive_9.png_nonmax.png" width="20%" />
+</p>
+
+The `consecutive >= 9` was chosen because that is the only flavour OpenCV implements, its results are [here](/media/with_opencv_threshold_16_type_9_16.png) and [here](with_opencv_threshold_16_type_9_16_nonmax.png).
 
 ## Algorithm:
   Extremely concise version of the algorithm.
@@ -49,6 +61,7 @@ computer game.
 ## Remarks
   - The current non maximum supression score function is the maximum 't' for which a feature would still be a feature.
     According to the paper this score function is often very similar between pixels in an image.
+  - The rust image crate does grey scale conversion differently than OpenCV does. Be sure to save make it greyscale with an editor for comparisons.
 
 
 ## License

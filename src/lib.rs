@@ -70,6 +70,14 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let start = std::time::Instant::now();
     let keypoints = opencv_compat::detector(&luma_view, &config);
     println!("nonmax normal is: {:?}", start.elapsed());
+    {
+
+        let mut rgb_owned = image::DynamicImage::ImageLuma8(luma_view.clone()).to_rgb8();
+        for kp in keypoints.iter() {
+            util::draw_plus_sized(&mut rgb_owned, (kp.x, kp.y), util::RED, 1);
+        }
+        let _ = rgb_owned.save("/tmp/with_rust_no_nonmax.png");
+    }
 
     if keypoints_simd != keypoints {
         panic!("Keypoints not identical");
