@@ -130,13 +130,10 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
     let indices = _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&circle_offset[0]));
 
     // Load the thresholds into a vector.
-    let m128_threshold = [t as u8; 16];
-    let m128_threshold =
-        _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_threshold[0]));
+    let m128_threshold = _mm_set1_epi8(i8::from_ne_bytes(t.to_ne_bytes()));
 
     // Load the center into a vector.
-    let m128_center = [base_v as u8; 16];
-    let m128_center = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_center[0]));
+    let m128_center = _mm_set1_epi8(i8::from_ne_bytes(base_v.to_ne_bytes()));
     trace!("m128_center  {}", pi(&m128_center));
 
     // Perform a single gather to obtain the first 8 pixels from the indices.
@@ -276,7 +273,6 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
                     return true;
                 } else if NONMAX == NONMAX_SUM_ABSOLUTE {
                     // Need to calculate the score.
-                    // keypoint_score_sum_abs_difference(pixels: __m128i, centers: __m128i, is_above: __m128i, is_below: __m128i, threshold: __m128i)
                     *score.unwrap() = keypoint_score_sum_abs_difference(
                         p,
                         m128_center,
@@ -342,9 +338,7 @@ pub fn detect<const NONMAX: u8>(
 
     unsafe {
         // Load a vector of thresholds.
-        let m128_threshold = [t as u8; 16];
-        let m128_threshold =
-            _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&m128_threshold[0]));
+        let m128_threshold = _mm_set1_epi8(i8::from_ne_bytes(t.to_ne_bytes()));
 
         for y in 3..(height - 3) {
             //     15 0 1
@@ -444,7 +438,7 @@ pub fn detect<const NONMAX: u8>(
                 // Next, depending on the number of consecutive points, we perform some masking to
                 // determine if the point is a potential keypoint.
                 // Yes, there is a branch in the loop here, but it doesn't seem to have a
-                // tremenduous amount of impact.
+                // noticable amount of impact.
                 let check_mask = if consecutive < 12 && consecutive >= 9 {
                     // Now, we need a way to determine 2 out of 4.
                     //               && south && west

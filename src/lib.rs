@@ -60,6 +60,14 @@ fn hash_result(points: &[FastPoint]) -> u64 {
     points.hash(&mut s);
     s.finish()
 }
+fn hash_slice_u8(d: &[u8]) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hash;
+    use std::hash::Hasher;
+    let mut s = DefaultHasher::new();
+    d.hash(&mut s);
+    s.finish()
+}
 
 pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let input_image_file = std::env::args().nth(1).expect("no image file specified");
@@ -116,10 +124,12 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     };
     let keypoints = compare_simd_normal(&luma_view, &config, "max_threshold_t16_c_9")?;
 
+    // This is only here since I always test on the same image, these hashes bail out in case anything
+    // changes in the results.
     let hash_keypoints = hash_result(&keypoints);
     println!("Hash of keypoints: 0x{hash_keypoints:x}");
-    if hash_keypoints != 0x8bf9cd0f9ca9ebec {
-        panic!("Not hash equal");
+    if hash_slice_u8(orig_image.as_raw()) == 0x8444a9356505ecab && hash_keypoints != 0x8bf9cd0f9ca9ebec {
+        panic!("Not hash equal against default test image.");
     }
 
     println!("--");
