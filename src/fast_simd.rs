@@ -250,6 +250,59 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
         above_bits as u32 | ((above_bits as u32) << 16)
     };
 
+    // 
+    let mut consec_mask = [0u8; 16];
+    for i in 0..consecutive {
+        consec_mask[i as usize] = 0xff;
+    }
+    let mut consec_mask = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&consec_mask[0]));
+
+    // Always 16 possibilities.
+    for k in 0..COUNT {
+
+        // Now, we need to check is_above and is_below with our consecutive mask.
+        // println!("is_above:      {}", pi(&is_above));
+        // println!("is_below:      {}", pi(&is_below));
+        // println!("consec_mask:   {}", pi(&consec_mask));
+
+        // We are onl;y interested in the section underneath the mask.
+        let above_masked = _mm_and_si128(is_above, consec_mask);
+        let below_masked = _mm_and_si128(is_below, consec_mask);
+        // println!("above_masked:  {}", pi(&above_masked));
+        // println!("below_masked:  {}", pi(&below_masked));
+
+        let above_masked_tail_ff = _mm_or_si128(above_masked, _mm_andnot_si128(consec_mask, _mm_set1_epi8(-1)));
+        let below_masked_tail_ff = _mm_or_si128(below_masked, _mm_andnot_si128(consec_mask, _mm_set1_epi8(-1)));
+
+        // println!("abov_tail_ff:  {}", pi(&above_masked_tail_ff));
+        // println!("belw_tail_ff:  {}", pi(&below_masked_tail_ff));
+
+        if _mm_test_all_ones(above_masked_tail_ff) == 1 || _mm_test_all_ones(below_masked_tail_ff) == 1 {
+            if NONMAX == NONMAX_DISABLED {
+                return true;
+            } else if NONMAX == NONMAX_MAX_THRESHOLD {
+                // Need to calculate the score.
+                *score.unwrap() = keypoint_score_max_threshold(base_v, p, consecutive);
+                return true;
+            } else if NONMAX == NONMAX_SUM_ABSOLUTE {
+                // Need to calculate the score.
+                *score.unwrap() = keypoint_score_sum_abs_difference(
+                    p,
+                    m128_center,
+                    is_above,
+                    is_below,
+                    m128_threshold,
+                );
+                return true;
+            }
+        }
+
+        // println!();
+        // Rotate the mask for the next check.
+        consec_mask = _mm_rotate_across_1(consec_mask);
+    }
+    return false;
+    panic!();
     // Next, we need to figure out if there is a consecutive sequence of above or below
     // in the ring of 16.
 
@@ -795,6 +848,11 @@ unsafe fn _mm256_rotate_across_2(difference_vector: __m256i) -> __m256i {
     rotated
 }
 
+/// Rotate an m128 by one bytes, not crossing lanes.
+unsafe fn _mm_rotate_across_1(difference_vector: __m128i) -> __m128i {
+    _mm_alignr_epi8(difference_vector, difference_vector, 1)
+}
+
 /// Horizontally sum a vector of u8's.
 // https://stackoverflow.com/a/36998778
 unsafe fn _mm_sum_epu8(v: __m128i) -> u32 {
@@ -1120,6 +1178,33 @@ mod test {
                 let mut back_to_thing = [0u16; 16];
                 _mm256_storeu_si256(
                     std::mem::transmute::<_, *mut __m256i>(&mut back_to_thing[0]),
+                    rotated_indices,
+                );
+
+                // Rotate with rust;
+                indices.rotate_left(1);
+
+                assert_eq!(indices, back_to_thing);
+            }
+        }
+    }
+    #[test]
+    fn test_mm_rotate_across_1() {
+        use rand_xoshiro::rand_core::{RngCore, SeedableRng};
+        use rand_xoshiro::Xoshiro256PlusPlus;
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
+        unsafe {
+            for _i in 0..100000 {
+                let mut indices = [0u8; 16];
+                for k in 0..16 {
+                    indices[k] = rng.next_u32() as u8;
+                }
+
+                let indices_vector = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&indices[0]));
+                let rotated_indices = _mm_rotate_across_1(indices_vector);
+                let mut back_to_thing = [0u8; 16];
+                _mm_storeu_si128(
+                    std::mem::transmute::<_, *mut __m128i>(&mut back_to_thing[0]),
                     rotated_indices,
                 );
 
