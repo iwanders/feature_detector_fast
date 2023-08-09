@@ -468,14 +468,9 @@ pub fn detect<const NONMAX: u8>(
                     );
                     trace!("2 ltf: {}", pi(&below_2_found));
 
-                    let found_3 = _mm_or_si128(above_2_found, below_2_found);
+                    let found_2 = _mm_or_si128(above_2_found, below_2_found);
 
-                    let mut mask = [0u8; STEP_SIZE];
-                    _mm_storeu_si128(
-                        std::mem::transmute::<_, *mut __m128i>(&mut mask[0]),
-                        found_3,
-                    );
-                    mask
+                    found_2
                 } else if consecutive >= 12 {
                     // Now, we need a way to determine 3 out of 4.
                     //          east && south && west
@@ -509,21 +504,31 @@ pub fn detect<const NONMAX: u8>(
                     trace!("3 ltf: {}", pi(&below_3_found));
 
                     let found_3 = _mm_or_si128(above_3_found, below_3_found);
-
-                    let mut mask = [0u8; STEP_SIZE];
-                    _mm_storeu_si128(
-                        std::mem::transmute::<_, *mut __m128i>(&mut mask[0]),
-                        found_3,
-                    );
-                    mask
+                    found_3
                 } else {
-                    [0xFFu8; STEP_SIZE]
+                    _mm_set1_epi8(i8::from_ne_bytes([0xFF]))
                 };
+
+                // Create a mask to shift with to check individual bytes.
+                let mut shift_mask =   _mm_set_epi64x (
+                    i64::from_ne_bytes(0u64.to_ne_bytes()),
+                    i64::from_ne_bytes(0xFFu64.to_ne_bytes()),
+                );
+
+                // Very fast check in case everything is zero.
+                if _mm_test_all_zeros (check_mask, check_mask) == 1 {
+                    continue;
+                }
 
                 // Finally, iterate over the potential candidates and determine if they were really
                 // a keypoint using the more extensive checks.
                 for xx in x..(x + STEP_SIZE as u32) {
-                    if check_mask[(xx - x) as usize] == 0 {
+                    // Test with the shift mask to determine if this byte is set.
+                    let byte_set_here = _mm_test_all_zeros(check_mask, shift_mask) == 1;
+                    // And advance the shift mask.
+                    shift_mask = _mm_bslli_si128(shift_mask, 1);
+
+                    if  byte_set_here {
                         continue;
                     }
                     let mut nonmax_score: u16 = 0;
