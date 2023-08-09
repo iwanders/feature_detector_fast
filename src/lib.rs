@@ -27,13 +27,13 @@ pub struct FastPoint {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum NonMaximalSuppression {
     /// No non maximal suppression, all features satisfying the consecutive circle threshold are
-    /// returned as keypoints. Example runtime: 10ms.
+    /// returned as keypoints. Example runtime: 6ms.
     Off,
     /// Use the maximum t for which this feature would still be a feature. This is what OpenCV uses.
-    /// Example runtime 15ms
+    /// Example runtime 11ms
     MaxThreshold,
     /// Take the absolute sum of all pixels in the dark or light set. This is what the authors
-    /// recommend, and it is extremely cheap to calculate. Example runtime 13ms.
+    /// recommend, and it is extremely cheap to calculate. Example runtime 9ms.
     SumAbsolute,
 }
 

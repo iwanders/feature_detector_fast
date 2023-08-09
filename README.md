@@ -2,7 +2,7 @@
 
 This is a highly optimised implementation of the FAST feature detector, described in "Machine Learning for High-Speed Corner Detection" by Rosten and Drummond, [doi](https://doi.org/10.1007/11744023_34).
 
-The found features from this crate are equivalent to the output of OpenCV. Runtime is almost half of OpenCV with identical image and parameters.
+The found features from this crate are equivalent to the output of OpenCV. Runtime is almost ~~half~~ a third of OpenCV with identical image and parameters.
 
 It makes heavy use of the AVX2 instruction set to achieve the highest possible throughput. In addition to this, the minimum consecutive pixel count is configurable, with 9 being the lower bound, up to the entire circle of 16 pixels. At 12 an additional cardinal direction check is possible, allowing for even more speedups in images where a consecutive count of `n >= 12` is feasible.
 
@@ -53,10 +53,13 @@ computer game.
 
 ##### Results without non-maximum supression:
   - OpenCV takes 18'ish milliseconds to run with a threshold of 16, 9/16 consecutive, no nonmax supression. This finds 23184 keypoints.
-  - This implementation takes 10'ish milliseconds, with the same parameters. And finds the same 23184 keypoints.
-##### Results with non-maximum supression:
+  - This implementation takes 6'ish milliseconds, with the same parameters. And finds the same 23184 keypoints.
+##### Results with max threshold non-maximum supression:
   - OpenCV takes 31'ish milliseconds to run with a threshold of 16, 9/16 consecutive, nonmax supression using maximum 't' for which it is a keypoint. This finds 7646 keypoints.
-  - This implementation takes 14'ish milliseconds, with the same parameters. And finds the same 7646 keypoints.
+  - This implementation takes 11'ish milliseconds, with the same parameters. And finds the same 7646 keypoints.
+##### Results with sum of absolute difference non-maximum supression:
+  - OpenCV does not implement this score function.
+  - This implementation takes 8'ish milliseconds. And finds the same 8307 keypoints.
 
 ## Remarks
   - The current non maximum supression score function is the maximum 't' for which a feature would still be a feature.
