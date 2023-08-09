@@ -236,21 +236,8 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
     trace!("below_bits    {below_bits:?}");
     trace!("above_bits    {above_bits:?}");
 
-    // Use popcount to determine which type of keypoint it is
-    let below_count = below_bits.count_ones();
-    let above_count = above_bits.count_ones();
-    trace!("below_count    {below_count:?}");
-    trace!("above_count    {above_count:?}");
-
-    // Then, we only have to operate on a single u32, that has bits set for the pixels that
-    // exceed the threshold.
-    let used_bits = if below_count > above_count {
-        below_bits as u32 | ((below_bits as u32) << 16)
-    } else {
-        above_bits as u32 | ((above_bits as u32) << 16)
-    };
-
-    // 
+    // Next, we need to check the 'n' consecutive pixels, we can do so with a rotating mask and some
+    // binary operations, allowing us to use tests on the entire vector.
     let mut consec_mask = [0u8; 16];
     for i in 0..consecutive {
         consec_mask[i as usize] = 0xff;
@@ -258,7 +245,7 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
     let mut consec_mask = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&consec_mask[0]));
 
     // Always 16 possibilities.
-    for k in 0..COUNT {
+    for _ in 0..COUNT {
 
         // Now, we need to check is_above and is_below with our consecutive mask.
         // println!("is_above:      {}", pi(&is_above));
@@ -301,51 +288,6 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
         // Rotate the mask for the next check.
         consec_mask = _mm_rotate_across_1(consec_mask);
     }
-    return false;
-    panic!();
-    // Next, we need to figure out if there is a consecutive sequence of above or below
-    // in the ring of 16.
-
-    // Working with that ring however, is tricky with the wraparound.
-    // 0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15
-    //                                                  0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15
-    // We can solve that problem by concatenating the vector again at the end, and iterating
-    // over the section that is (16 + consecutive)
-
-    let mut found_consecutive = 0;
-    for k in 0..(COUNT + consecutive as usize) {
-        if (used_bits & (1 << k)) != 0 {
-            found_consecutive += 1;
-            // If we found the correct number of consecutive bits, bial out.
-            if found_consecutive >= consecutive {
-                if NONMAX == NONMAX_DISABLED {
-                    return true;
-                } else if NONMAX == NONMAX_MAX_THRESHOLD {
-                    // Need to calculate the score.
-                    *score.unwrap() = keypoint_score_max_threshold(base_v, p, consecutive);
-                    return true;
-                } else if NONMAX == NONMAX_SUM_ABSOLUTE {
-                    // Need to calculate the score.
-                    *score.unwrap() = keypoint_score_sum_abs_difference(
-                        p,
-                        m128_center,
-                        is_above,
-                        is_below,
-                        m128_threshold,
-                    );
-                    return true;
-                }
-            }
-            // We can also break if we can not possibly reach consecutive before end of iteration
-            // Needs a benchmark.
-            if (k + (consecutive - found_consecutive) as usize) > (COUNT + consecutive as usize) {
-                break;
-            }
-        } else {
-            found_consecutive = 0;
-        }
-    }
-
     false
 }
 
