@@ -76,31 +76,37 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let circle_image = opencv_compat::make_circle_image();
     let _ = circle_image.save("/tmp/circle_image.png")?;
 
+    fn compare_simd_normal(luma_view: &image::GrayImage, config: &FastConfig, name: &str) -> Result<Vec<FastPoint>, Box<dyn std::error::Error>> {
+        let start = std::time::Instant::now();
+        let keypoints_simd = fast_simd::detector(&luma_view, &config);
+        println!("{name} simd  : {:?}", start.elapsed());
+
+        let start = std::time::Instant::now();
+        let keypoints = opencv_compat::detector(&luma_view, &config);
+        println!("{name} normal: {:?}", start.elapsed());
+        {
+            let mut rgb_owned = image::DynamicImage::ImageLuma8(luma_view.clone()).to_rgb8();
+            for kp in keypoints.iter() {
+                util::draw_plus_sized(&mut rgb_owned, (kp.x, kp.y), util::RED, 1);
+            }
+            let _ = rgb_owned.save(format!("/tmp/with_rust_{name}.png"));
+        }
+
+        if keypoints_simd != keypoints {
+            panic!("Keypoints not identical");
+        }
+        println!("{name} Found {} keypoints", keypoints.len());
+        Ok(keypoints_simd)
+    }
+
+
     let config = FastConfig {
         threshold: 16,
         count: 9,
         non_maximal_supression: NonMaximalSuppression::Off,
     };
+    compare_simd_normal(&luma_view, &config, "non_max_suppression_t16_c_9")?;
 
-    let start = std::time::Instant::now();
-    let keypoints_simd = fast_simd::detector(&luma_view, &config);
-    println!("nonmax simd is: {:?}", start.elapsed());
-
-    let start = std::time::Instant::now();
-    let keypoints = opencv_compat::detector(&luma_view, &config);
-    println!("nonmax normal is: {:?}", start.elapsed());
-    {
-        let mut rgb_owned = image::DynamicImage::ImageLuma8(luma_view.clone()).to_rgb8();
-        for kp in keypoints.iter() {
-            util::draw_plus_sized(&mut rgb_owned, (kp.x, kp.y), util::RED, 1);
-        }
-        let _ = rgb_owned.save("/tmp/with_rust_no_nonmax.png");
-    }
-
-    if keypoints_simd != keypoints {
-        panic!("Keypoints not identical");
-    }
-    println!("Found {} keypoints", keypoints.len());
 
     println!("   - -- ");
     let config = FastConfig {
@@ -108,32 +114,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         count: 9,
         non_maximal_supression: NonMaximalSuppression::MaxThreshold,
     };
-
-    let start = std::time::Instant::now();
-    let keypoints_simd = fast_simd::detector(&luma_view, &config);
-    println!("simd is: {:?}", start.elapsed());
-
-    let start = std::time::Instant::now();
-    let keypoints = opencv_compat::detector(&luma_view, &config);
-    println!("normal is: {:?}", start.elapsed());
-
-    println!("Found {} keypoints", keypoints.len());
-
-    if keypoints_simd != keypoints {
-        panic!("Suppressed keypoints not identical");
-    }
-
-    let mut rgb_owned = image::DynamicImage::ImageLuma8(luma_view.clone()).to_rgb8();
-    for kp in keypoints_simd.iter() {
-        util::draw_plus_sized(&mut rgb_owned, (kp.x, kp.y), util::RED, 1);
-    }
-    let _ = rgb_owned.save("/tmp/with_rust_simd.png");
-
-    let mut rgb_owned = image::DynamicImage::ImageLuma8(luma_view.clone()).to_rgb8();
-    for kp in keypoints.iter() {
-        util::draw_plus_sized(&mut rgb_owned, (kp.x, kp.y), util::RED, 1);
-    }
-    let _ = rgb_owned.save("/tmp/with_rust.png");
+    let keypoints = compare_simd_normal(&luma_view, &config, "max_threshold_t16_c_9")?;
 
     let hash_keypoints = hash_result(&keypoints);
     println!("Hash of keypoints: 0x{hash_keypoints:x}");
@@ -148,27 +129,8 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         count: 9,
         non_maximal_supression: NonMaximalSuppression::SumAbsolute,
     };
+    compare_simd_normal(&luma_view, &config, "sum_absolute_t16_c_9")?;
 
-    let start = std::time::Instant::now();
-    let keypoints_simd = fast_simd::detector(&luma_view, &config);
-    println!("sum absolute simd is: {:?}", start.elapsed());
-
-    let start = std::time::Instant::now();
-    let keypoints = opencv_compat::detector(&luma_view, &config);
-    println!("sum absolute normal is: {:?}", start.elapsed());
-
-    if keypoints_simd != keypoints {
-        panic!("Suppressed keypoints not identical");
-    }
-
-    println!("Found {} keypoints", keypoints.len());
-    {
-        let mut rgb_owned = image::DynamicImage::ImageLuma8(luma_view.clone()).to_rgb8();
-        for kp in keypoints.iter() {
-            util::draw_plus_sized(&mut rgb_owned, (kp.x, kp.y), util::RED, 1);
-        }
-        let _ = rgb_owned.save("/tmp/with_rust_sum_absolute.png");
-    }
 
     Ok(())
 }
