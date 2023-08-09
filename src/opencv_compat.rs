@@ -209,10 +209,16 @@ pub fn non_max_supression(
         return keypoints;
     }
 
-    let score_function: Box<dyn Fn((u32, u32))->u16>  = match config.non_maximal_supression {
-        crate::NonMaximalSuppression::MaxThreshold => Box::new(|p: (u32, u32)| non_max_suppression_opencv_score(image, p)),
-        crate::NonMaximalSuppression::SumAbsolute => Box::new(|p: (u32, u32)| non_max_suppression_max_abs(image, p, config.threshold)),
-        crate::NonMaximalSuppression::Off => {unreachable!()},
+    let score_function: Box<dyn Fn((u32, u32)) -> u16> = match config.non_maximal_supression {
+        crate::NonMaximalSuppression::MaxThreshold => {
+            Box::new(|p: (u32, u32)| non_max_suppression_opencv_score(image, p))
+        }
+        crate::NonMaximalSuppression::SumAbsolute => {
+            Box::new(|p: (u32, u32)| non_max_suppression_max_abs(image, p, config.threshold))
+        }
+        crate::NonMaximalSuppression::Off => {
+            unreachable!()
+        }
     };
 
     // Very inefficient.
@@ -220,7 +226,7 @@ pub fn non_max_supression(
 
     'kpiter: for kp in keypoints.iter() {
         let current_score = score_function((kp.x, kp.y));
-        if kp.y == 3 || kp.y == image.height() - 4 { 
+        if kp.y == 3 || kp.y == image.height() - 4 {
             continue;
         }
         for dx in [-1i32, 0, 1] {
@@ -246,12 +252,11 @@ pub fn non_max_supression(
     res
 }
 
-
-pub fn non_max_suppression_max_abs(image: &image::GrayImage, (x, y): (u32, u32), t: u8) -> u16 {
+/// Interface method for the non max calculation.
+fn non_max_suppression_max_abs(image: &image::GrayImage, (x, y): (u32, u32), t: u8) -> u16 {
     let base_v = image.get_pixel(x, y)[0];
 
     let mut values = [0u8; 16];
-    let offsets = circle();
     for i in 0..values.len() {
         let pos = circle()[i];
         let circle_p = image.get_pixel((x as i32 + pos.0) as u32, (y as i32 + pos.1) as u32)[0];
@@ -259,7 +264,8 @@ pub fn non_max_suppression_max_abs(image: &image::GrayImage, (x, y): (u32, u32),
     }
     score_non_max_supression_max_abs_sum(base_v, &values, t)
 }
-// Pretty much as clear as I can write it.
+
+/// Non max equation number 3 from the paper.
 pub fn score_non_max_supression_max_abs_sum(base_v: u8, circle: &[u8], t: u8) -> u16 {
     // println!("              base: {base_v:02x}, t: {t:02x}, circle: {circle:02x?}");
     let mut sum_dark: u16 = 0;
@@ -282,7 +288,6 @@ pub fn score_non_max_supression_max_abs_sum(base_v: u8, circle: &[u8], t: u8) ->
     }
     sum_dark.max(sum_light)
 }
-
 
 pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
     let r = detect(img, config.threshold, config.count);

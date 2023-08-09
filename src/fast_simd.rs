@@ -71,6 +71,10 @@ pub const EAST: usize = 4;
 pub const SOUTH: usize = 8;
 pub const WEST: usize = 12;
 
+const NONMAX_DISABLED: u8 = 0;
+const NONMAX_MAX_THRESHOLD: u8 = NONMAX_DISABLED + 1;
+const NONMAX_SUM_ABSOLUTE: u8 = NONMAX_MAX_THRESHOLD + 1;
+
 /// The circle with 16 pixels.
 pub const fn circle() -> [(i32, i32); 16] {
     [
@@ -106,7 +110,7 @@ pub fn calculate_offsets(width: u32) -> CircleOffsets {
 // This inline keyword actually makes a difference.
 #[inline(always)]
 /// Determine whether there's a keypoint at the provided location.
-unsafe fn determine_keypoint<const NONMAX: bool>(
+unsafe fn determine_keypoint<const NONMAX: u8>(
     data: &[u8],
     circle_offset: &CircleOffsets,
     width: u32,
@@ -264,11 +268,22 @@ unsafe fn determine_keypoint<const NONMAX: bool>(
             found_consecutive += 1;
             // If we found the correct number of consecutive bits, bial out.
             if found_consecutive >= consecutive {
-                if !NONMAX {
+                if NONMAX == NONMAX_DISABLED {
                     return true;
-                } else {
+                } else if NONMAX == NONMAX_MAX_THRESHOLD {
                     // Need to calculate the score.
                     *score.unwrap() = keypoint_score_max_threshold(base_v, p, consecutive);
+                    return true;
+                } else if NONMAX == NONMAX_SUM_ABSOLUTE {
+                    // Need to calculate the score.
+                    // keypoint_score_sum_abs_difference(pixels: __m128i, centers: __m128i, is_above: __m128i, is_below: __m128i, threshold: __m128i)
+                    *score.unwrap() = keypoint_score_sum_abs_difference(
+                        p,
+                        m128_center,
+                        is_above,
+                        is_below,
+                        m128_threshold,
+                    );
                     return true;
                 }
             }
@@ -287,7 +302,7 @@ unsafe fn determine_keypoint<const NONMAX: bool>(
 
 // It would be really nice to have feature(adt_const_params) here; https://github.com/rust-lang/rust/issues/95174
 
-pub fn detect<const NONMAX: bool>(
+pub fn detect<const NONMAX: u8>(
     image: &image::GrayImage,
     t: u8,
     consecutive: u8,
@@ -518,7 +533,7 @@ pub fn detect<const NONMAX: bool>(
                         continue;
                     }
                     let mut nonmax_score: u16 = 0;
-                    let nonmax_optional_score = if NONMAX {
+                    let nonmax_optional_score = if NONMAX != NONMAX_DISABLED {
                         Some(&mut nonmax_score)
                     } else {
                         None
@@ -532,7 +547,7 @@ pub fn detect<const NONMAX: bool>(
                         consecutive,
                         nonmax_optional_score,
                     ) {
-                        if !NONMAX {
+                        if NONMAX == NONMAX_DISABLED {
                             r.push(FastPoint { x: xx, y: y });
                         } else {
                             nonmax_y_0[xx as usize] = nonmax_score;
@@ -548,7 +563,7 @@ pub fn detect<const NONMAX: bool>(
                 let x = x_step + 3;
 
                 let mut nonmax_score: u16 = 0;
-                let nonmax_optional_score = if NONMAX {
+                let nonmax_optional_score = if NONMAX != NONMAX_DISABLED {
                     Some(&mut nonmax_score)
                 } else {
                     None
@@ -562,7 +577,7 @@ pub fn detect<const NONMAX: bool>(
                     consecutive,
                     nonmax_optional_score,
                 ) {
-                    if !NONMAX {
+                    if NONMAX == NONMAX_DISABLED {
                         r.push(FastPoint { x: x, y: y });
                     } else {
                         nonmax_y_0[x as usize] = nonmax_score;
@@ -571,7 +586,7 @@ pub fn detect<const NONMAX: bool>(
             }
 
             // At the end of the row, if we are doing nonmax, iterate through the appropriate row, and evaluate.
-            if NONMAX {
+            if NONMAX != NONMAX_DISABLED {
                 if y == 4 {
                     continue; // Quirk from OpenCV?
                 }
@@ -707,13 +722,25 @@ pub fn keypoint_score_max_threshold(base_v: u8, pixels: __m128i, consecutive: u8
     }
 }
 
-pub fn keypoint_score_sum_abs_difference(pixels: __m128i, centers: __m128i, is_above: __m128i, is_below: __m128i, threshold: __m128i) -> u16 {
+pub fn keypoint_score_sum_abs_difference(
+    pixels: __m128i,
+    centers: __m128i,
+    is_above: __m128i,
+    is_below: __m128i,
+    threshold: __m128i,
+) -> u16 {
     unsafe {
         // trace!("centers       {}", pi(&centers));
         // trace!("pixels        {}", pi(&pixels));
         // trace!("threshold     {}", pi(&threshold));
-        let values_bright = _mm_and_si128(_mm_subs_epu8(_mm_subs_epu8(centers, pixels), threshold), is_below);
-        let values_dark = _mm_and_si128(_mm_subs_epu8(_mm_subs_epu8(pixels, centers), threshold), is_above);
+        let values_bright = _mm_and_si128(
+            _mm_subs_epu8(_mm_subs_epu8(centers, pixels), threshold),
+            is_below,
+        );
+        let values_dark = _mm_and_si128(
+            _mm_subs_epu8(_mm_subs_epu8(pixels, centers), threshold),
+            is_above,
+        );
         // trace!("is_above      {}", pi(&is_above));
         // trace!("is_below      {}", pi(&is_below));
         // trace!("values_bright {}", pi(&values_bright));
@@ -723,8 +750,6 @@ pub fn keypoint_score_sum_abs_difference(pixels: __m128i, centers: __m128i, is_a
         bright.max(dark) as u16
     }
 }
-
-
 
 /// Compare u8 types in a m128 vector.
 ///  https://stackoverflow.com/a/24234695
@@ -799,13 +824,16 @@ unsafe fn pl(input: &__m256i) -> String {
 }
 
 pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
-    // if config.non_maximal_supression {
-
-    if config.non_maximal_supression == crate::NonMaximalSuppression::Off {
-        detect::<false>(img, config.threshold, config.count)
-    } else {
-        detect::<true>(img, config.threshold, config.count)
-    // } else {)
+    match config.non_maximal_supression {
+        crate::NonMaximalSuppression::Off => {
+            detect::<NONMAX_DISABLED>(img, config.threshold, config.count)
+        }
+        crate::NonMaximalSuppression::MaxThreshold => {
+            detect::<NONMAX_MAX_THRESHOLD>(img, config.threshold, config.count)
+        }
+        crate::NonMaximalSuppression::SumAbsolute => {
+            detect::<NONMAX_SUM_ABSOLUTE>(img, config.threshold, config.count)
+        }
     }
 }
 
@@ -934,7 +962,7 @@ mod test {
         let circle_offset = calculate_offsets(width);
 
         let z = unsafe {
-            determine_keypoint::<false>(
+            determine_keypoint::<NONMAX_DISABLED>(
                 &img.as_raw(),
                 &circle_offset,
                 width,
@@ -946,7 +974,7 @@ mod test {
         };
         assert!(z);
 
-        let detected = detect::<false>(&img, 16, 9);
+        let detected = detect::<NONMAX_DISABLED>(&img, 16, 9);
         assert_eq!(detected.contains(&FastPoint { x, y }), true);
 
         // Check the score function.
@@ -955,7 +983,7 @@ mod test {
 
         let mut calculated_score = 0u16;
         let z = unsafe {
-            determine_keypoint::<true>(
+            determine_keypoint::<NONMAX_MAX_THRESHOLD>(
                 &img.as_raw(),
                 &circle_offset,
                 width,
@@ -1065,7 +1093,8 @@ mod test {
                     indices[k] = rng.next_u32() as u8;
                 }
 
-                let indices_vector = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&indices[0]));
+                let indices_vector =
+                    _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&indices[0]));
                 let sum_simd = _mm_sum_epu8(indices_vector);
                 assert_eq!(sum_simd, indices.iter().map(|x| *x as u32).sum::<u32>());
             }
@@ -1124,11 +1153,12 @@ mod test {
                 let base_v = rng.next_u32() as u8;
                 let t = rng.next_u32() as u8;
 
-                let score_without_simd = crate::opencv_compat::score_non_max_supression_max_abs_sum(base_v, &circle, t);
+                let score_without_simd =
+                    crate::opencv_compat::score_non_max_supression_max_abs_sum(base_v, &circle, t);
 
-                let m128_center = _mm_set1_epi8 (i8::from_ne_bytes(base_v.to_ne_bytes()));
-                let m128_threshold = _mm_set1_epi8 (i8::from_ne_bytes(t.to_ne_bytes()));
-                let p =  _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&circle[0]));
+                let m128_center = _mm_set1_epi8(i8::from_ne_bytes(base_v.to_ne_bytes()));
+                let m128_threshold = _mm_set1_epi8(i8::from_ne_bytes(t.to_ne_bytes()));
+                let p = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&circle[0]));
 
                 // Now, we can calculate the lower and upper bounds.
                 let upper_bound = _mm_adds_epu8(m128_center, m128_threshold);
@@ -1141,7 +1171,13 @@ mod test {
                 let is_below = _mm_cmpgt_epu8(lower_bound, p);
                 // trace!("is_above    {}", pi(&is_above));
                 // trace!("is_below    {}", pi(&is_below));
-                let with_simd = keypoint_score_sum_abs_difference(p, m128_center, is_above, is_below, m128_threshold);
+                let with_simd = keypoint_score_sum_abs_difference(
+                    p,
+                    m128_center,
+                    is_above,
+                    is_below,
+                    m128_threshold,
+                );
                 assert_eq!(score_without_simd, with_simd);
             }
         }
