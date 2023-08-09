@@ -108,7 +108,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     compare_simd_normal(&luma_view, &config, "non_max_suppression_t16_c_9")?;
 
 
-    println!("   - -- ");
+    println!("--");
     let config = FastConfig {
         threshold: 16,
         count: 9,
@@ -122,7 +122,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         panic!("Not hash equal");
     }
 
-    println!("   - -- ");
+    println!("--");
 
     let config = FastConfig {
         threshold: 16,
@@ -130,6 +130,24 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         non_maximal_supression: NonMaximalSuppression::SumAbsolute,
     };
     compare_simd_normal(&luma_view, &config, "sum_absolute_t16_c_9")?;
+
+
+    println!("--");
+    let config = FastConfig {
+        threshold: 16,
+        count: 12,
+        non_maximal_supression: NonMaximalSuppression::SumAbsolute,
+    };
+    compare_simd_normal(&luma_view, &config, "sum_absolute_t16_c_12")?;
+
+    println!("--");
+    let config = FastConfig {
+        threshold: 32,
+        count: 12,
+        non_maximal_supression: NonMaximalSuppression::SumAbsolute,
+    };
+    compare_simd_normal(&luma_view, &config, "sum_absolute_t32_c_16")?;
+
 
 
     Ok(())

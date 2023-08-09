@@ -4,7 +4,7 @@ This is a highly optimised implementation of the FAST feature detector, describe
 
 The found features from this crate are equivalent to the output of OpenCV. Runtime is almost half of OpenCV with identical image and parameters.
 
-It makes heavy use of the AVX2 instruction set to achieve the highest possible throughput.
+It makes heavy use of the AVX2 instruction set to achieve the highest possible throughput. In addition to this, the minimum consecutive pixel count is configurable, with 9 being the lower bound, up to the entire circle of 16 pixels. At 12 an additional cardinal direction check is possible, allowing for even more speedups in images where a consecutive count of `n >= 12` is feasible.
 
 ## Example
 Example images to give an idea (left to right): RGB input, Grayscale, features detected with `threshold = 16`, `consecutive >= 9`, and the same with non-max suppression.

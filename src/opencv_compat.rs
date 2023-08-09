@@ -164,7 +164,7 @@ pub fn detect(
     r
 }
 
-pub fn non_max_suppression_opencv_score(image: &image::GrayImage, (x, y): (u32, u32)) -> u16 {
+pub fn non_max_suppression_opencv_score(image: &image::GrayImage, (x, y): (u32, u32), count: u8) -> u16 {
     // Definition of the paper is, let a cirle point be p and center of the circle c.
     //     darker: p <= c - t
     //     similar: c - t < p < c + t
@@ -173,7 +173,7 @@ pub fn non_max_suppression_opencv_score(image: &image::GrayImage, (x, y): (u32, 
     let base_v = image.get_pixel(x, y)[0] as i16;
 
     // Opencv has hardcoded 9/16, so their wrap-around ringbuffer is 16 + 9 = 25 long.
-    let mut difference = [0i16; 25];
+    let mut difference = [0i16; 32];
     let offsets = circle();
     for i in 0..difference.len() {
         let pos = circle()[i % offsets.len()];
@@ -185,13 +185,13 @@ pub fn non_max_suppression_opencv_score(image: &image::GrayImage, (x, y): (u32, 
     // OpenCV calculates the highest / lowest extremum across any consecutive block of 9 pixels.
     let mut extreme_highest = std::i16::MIN;
     for k in 0..16 {
-        let min_value_of_9 = *difference[k..(k + 9)].iter().min().unwrap();
+        let min_value_of_9 = *difference[k..(k + count as usize)].iter().min().unwrap();
         extreme_highest = extreme_highest.max(min_value_of_9);
     }
 
     let mut extreme_lowest = std::i16::MAX;
     for k in 0..16 {
-        let max_value_of_9 = *difference[k..(k + 9)].iter().max().unwrap();
+        let max_value_of_9 = *difference[k..(k + count as usize)].iter().max().unwrap();
         extreme_lowest = extreme_lowest.min(max_value_of_9);
     }
 
@@ -211,7 +211,7 @@ pub fn non_max_supression(
 
     let score_function: Box<dyn Fn((u32, u32)) -> u16> = match config.non_maximal_supression {
         crate::NonMaximalSuppression::MaxThreshold => {
-            Box::new(|p: (u32, u32)| non_max_suppression_opencv_score(image, p))
+            Box::new(|p: (u32, u32)| non_max_suppression_opencv_score(image, p, config.count))
         }
         crate::NonMaximalSuppression::SumAbsolute => {
             Box::new(|p: (u32, u32)| non_max_suppression_max_abs(image, p, config.threshold))
