@@ -510,13 +510,13 @@ pub fn detect<const NONMAX: u8>(
                 };
 
                 // Create a mask to shift with to check individual bytes.
-                let mut shift_mask =   _mm_set_epi64x (
+                let mut shift_mask = _mm_set_epi64x(
                     i64::from_ne_bytes(0u64.to_ne_bytes()),
                     i64::from_ne_bytes(0xFFu64.to_ne_bytes()),
                 );
 
                 // Very fast check in case everything is zero.
-                if _mm_test_all_zeros (check_mask, check_mask) == 1 {
+                if _mm_test_all_zeros(check_mask, check_mask) == 1 {
                     continue;
                 }
 
@@ -528,7 +528,7 @@ pub fn detect<const NONMAX: u8>(
                     // And advance the shift mask.
                     shift_mask = _mm_bslli_si128(shift_mask, 1);
 
-                    if  byte_set_here {
+                    if byte_set_here {
                         continue;
                     }
                     let mut nonmax_score: u16 = 0;
@@ -898,6 +898,7 @@ mod test {
     fn test_47_115_score_calc() {
         // let center = 10;
         let center = 17;
+        let count = 9;
         let img = create_sample_image(
             center,
             &[
@@ -909,7 +910,7 @@ mod test {
         );
         let x = img.width() / 2;
         let y = img.height() / 2;
-        let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
+        let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y), count);
         assert_eq!(opencv_nonmax_test_wrapper(&img, (x, y)), 20);
         assert_eq!(score, 20);
 
@@ -918,7 +919,7 @@ mod test {
             let img = create_random_image(i);
             let x = img.width() / 2;
             let y = img.height() / 2;
-            let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
+            let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y), count);
             assert_eq!(opencv_nonmax_test_wrapper(&img, (x, y)), score);
         }
 
@@ -977,7 +978,8 @@ mod test {
         assert_eq!(detected.contains(&FastPoint { x, y }), true);
 
         // Check the score function.
-        let score = crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y));
+        let score =
+            crate::opencv_compat::non_max_suppression_opencv_score(&img, (x, y), count_minimum);
         assert_eq!(score, 20);
 
         let mut calculated_score = 0u16;

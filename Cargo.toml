@@ -12,9 +12,14 @@ image = { version = "0.24.6"}
 
 [dev-dependencies]
 rand_xoshiro = "0.6.0"
+criterion = "0.5.1"
 
 # https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]
 # Enable some optimisations, but not all of it.
 opt-level = 2
 debug = 1
+
+[[bench]]
+name = "benchmark"
+harness = false

@@ -84,7 +84,11 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let circle_image = opencv_compat::make_circle_image();
     let _ = circle_image.save("/tmp/circle_image.png")?;
 
-    fn compare_simd_normal(luma_view: &image::GrayImage, config: &FastConfig, name: &str) -> Result<Vec<FastPoint>, Box<dyn std::error::Error>> {
+    fn compare_simd_normal(
+        luma_view: &image::GrayImage,
+        config: &FastConfig,
+        name: &str,
+    ) -> Result<Vec<FastPoint>, Box<dyn std::error::Error>> {
         let start = std::time::Instant::now();
         let keypoints_simd = fast_simd::detector(&luma_view, &config);
         println!("{name} simd  : {:?}", start.elapsed());
@@ -107,14 +111,12 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         Ok(keypoints_simd)
     }
 
-
     let config = FastConfig {
         threshold: 16,
         count: 9,
         non_maximal_supression: NonMaximalSuppression::Off,
     };
     compare_simd_normal(&luma_view, &config, "non_max_suppression_t16_c_9")?;
-
 
     println!("--");
     let config = FastConfig {
@@ -128,7 +130,9 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     // changes in the results.
     let hash_keypoints = hash_result(&keypoints);
     println!("Hash of keypoints: 0x{hash_keypoints:x}");
-    if hash_slice_u8(orig_image.as_raw()) == 0x8444a9356505ecab && hash_keypoints != 0x8bf9cd0f9ca9ebec {
+    if hash_slice_u8(orig_image.as_raw()) == 0x8444a9356505ecab
+        && hash_keypoints != 0x8bf9cd0f9ca9ebec
+    {
         panic!("Not hash equal against default test image.");
     }
 
@@ -140,7 +144,6 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         non_maximal_supression: NonMaximalSuppression::SumAbsolute,
     };
     compare_simd_normal(&luma_view, &config, "sum_absolute_t16_c_9")?;
-
 
     println!("--");
     let config = FastConfig {
@@ -157,8 +160,6 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         non_maximal_supression: NonMaximalSuppression::SumAbsolute,
     };
     compare_simd_normal(&luma_view, &config, "sum_absolute_t32_c_16")?;
-
-
 
     Ok(())
 }

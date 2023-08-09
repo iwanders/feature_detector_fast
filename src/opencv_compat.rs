@@ -164,7 +164,11 @@ pub fn detect(
     r
 }
 
-pub fn non_max_suppression_opencv_score(image: &image::GrayImage, (x, y): (u32, u32), count: u8) -> u16 {
+pub fn non_max_suppression_opencv_score(
+    image: &image::GrayImage,
+    (x, y): (u32, u32),
+    count: u8,
+) -> u16 {
     // Definition of the paper is, let a cirle point be p and center of the circle c.
     //     darker: p <= c - t
     //     similar: c - t < p < c + t
