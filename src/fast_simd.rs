@@ -237,7 +237,8 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
     trace!("below_bits    {below_bits:?}");
     trace!("above_bits    {above_bits:?}");
 
-
+    // Next, we need to check the 'n' consecutive pixels, we can do so with a rotating mask and some
+    // binary operations, allowing us to use tests on the entire vector.
     let mut consec_mask = consecutive_mask;
 
     // Always 16 possibilities.
@@ -247,7 +248,7 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
         // println!("is_below:      {}", pi(&is_below));
         // println!("consec_mask:   {}", pi(&consec_mask));
 
-        // We are onl;y interested in the section underneath the mask.
+        // We are only interested in the section underneath the mask.
         let above_masked = _mm_and_si128(is_above, consec_mask);
         let below_masked = _mm_and_si128(is_below, consec_mask);
         // println!("above_masked:  {}", pi(&above_masked));
@@ -287,7 +288,6 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
             }
         }
 
-        // println!();
         // Rotate the mask for the next check.
         consec_mask = _mm_rotate_across_1(consec_mask);
     }
@@ -330,16 +330,11 @@ pub fn detect<const NONMAX: u8>(image: &image::GrayImage, t: u8, consecutive: u8
     // calculate the circle offsets for the data once.
     let circle_offset = calculate_offsets(width);
 
-
-
     unsafe {
-
         // Load a vector of thresholds.
         let m128_threshold = _mm_set1_epi8(i8::from_ne_bytes(t.to_ne_bytes()));
 
-
-        // Next, we need to check the 'n' consecutive pixels, we can do so with a rotating mask and some
-        // binary operations, allowing us to use tests on the entire vector.
+        // Prepare the mask of 'n' consecutive pixels into an _m128i.
         let consec_mask = _mm_create_consecutive_mask(consecutive);
 
         for y in 3..(height - 3) {
@@ -597,13 +592,14 @@ pub fn detect<const NONMAX: u8>(image: &image::GrayImage, t: u8, consecutive: u8
                 let center = &nonmax_y_1;
                 let below = &nonmax_y_0;
                 for x in 3..(width as usize - 3) {
+                    // our score shorthand
+                    let s = center[x];
+
                     // check if we even have a point here.
-                    if center[x] == 0 {
+                    if s == 0 {
                         continue;
                     }
 
-                    // our score shorthand
-                    let s = center[x];
                     let exceed_above = s > above[x - 1] && s > above[x - 0] && s > above[x + 1];
                     let exceed_cntr = s > center[x - 1] && s > center[x + 1];
                     let exceed_below = s > below[x - 1] && s > below[x - 0] && s > below[x + 1];

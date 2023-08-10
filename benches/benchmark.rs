@@ -26,10 +26,21 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             black_box(keypoints_simd);
         })
     });
-    c.bench_function("simd_t16_c_12_sum_abs", |b| {
+    c.bench_function("simd_t16_c_9_max_threshold", |b| {
         let config = Config {
             threshold: 16,
-            count: 12,
+            count: 9,
+            non_maximal_supression: NonMaximalSuppression::MaxThreshold,
+        };
+        b.iter(|| {
+            let keypoints_simd = fast_simd::detector(&luma_view, &config);
+            black_box(keypoints_simd);
+        })
+    });
+    c.bench_function("simd_t16_c_9_sum_abs", |b| {
+        let config = Config {
+            threshold: 16,
+            count: 9,
             non_maximal_supression: NonMaximalSuppression::SumAbsolute,
         };
         b.iter(|| {
