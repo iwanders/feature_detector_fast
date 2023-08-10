@@ -1,4 +1,4 @@
-use feature_detector_fast::{fast_simd, util, FastConfig, NonMaximalSuppression};
+use feature_detector_fast::{util, Config, NonMaximalSuppression};
 use image;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -44,13 +44,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let luma_view = image::DynamicImage::ImageRgb8(orig_image.clone()).to_luma8();
     // let _ = luma_view.save("/tmp/rust_grey.png")?;
 
-    let config = FastConfig {
+    let config = Config {
         threshold,
         count,
         non_maximal_supression,
     };
     let start = std::time::Instant::now();
-    let keypoints = fast_simd::detector(&luma_view, &config);
+    let keypoints = feature_detector_fast::detect(&luma_view, &config);
     println!(
         "Took: {:?}, found {} keypoints",
         start.elapsed(),

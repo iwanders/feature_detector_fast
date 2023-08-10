@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use feature_detector_fast::{fast_simd, FastConfig, NonMaximalSuppression};
+use feature_detector_fast::{fast_simd, Config, NonMaximalSuppression};
 use image;
 
 pub fn criterion_benchmark(c: &mut Criterion) {
@@ -16,7 +16,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let luma_view = image::DynamicImage::ImageRgb8(orig_image.clone()).to_luma8();
 
     c.bench_function("simd_t16_c_9_off", |b| {
-        let config = FastConfig {
+        let config = Config {
             threshold: 16,
             count: 9,
             non_maximal_supression: NonMaximalSuppression::Off,
@@ -27,7 +27,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         })
     });
     c.bench_function("simd_t16_c_12_sum_abs", |b| {
-        let config = FastConfig {
+        let config = Config {
             threshold: 16,
             count: 12,
             non_maximal_supression: NonMaximalSuppression::SumAbsolute,

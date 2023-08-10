@@ -1,8 +1,8 @@
-use feature_detector_fast::{
-    fast_simd, opencv_compat, util, FastConfig, FastPoint, NonMaximalSuppression,
-};
+use feature_detector_fast::{fast_simd, opencv_compat, util, Config, NonMaximalSuppression, Point};
 
-fn hash_result(points: &[FastPoint]) -> u64 {
+// INPUT_FILE=../screenshots/Screenshot315_grey.png cargo t --release -- --nocapture
+
+fn hash_result(points: &[Point]) -> u64 {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hash;
     use std::hash::Hasher;
@@ -38,9 +38,9 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
 
     fn compare_simd_normal(
         luma_view: &image::GrayImage,
-        config: &FastConfig,
+        config: &Config,
         name: &str,
-    ) -> Result<Vec<FastPoint>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<Point>, Box<dyn std::error::Error>> {
         let start = std::time::Instant::now();
         let keypoints_simd = fast_simd::detector(&luma_view, &config);
         println!("{name} simd  : {:?}", start.elapsed());
@@ -63,7 +63,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         Ok(keypoints_simd)
     }
 
-    let config = FastConfig {
+    let config = Config {
         threshold: 16,
         count: 9,
         non_maximal_supression: NonMaximalSuppression::Off,
@@ -71,7 +71,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     compare_simd_normal(&luma_view, &config, "non_max_suppression_t16_c_9")?;
 
     println!("--");
-    let config = FastConfig {
+    let config = Config {
         threshold: 16,
         count: 9,
         non_maximal_supression: NonMaximalSuppression::MaxThreshold,
@@ -90,7 +90,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("--");
 
-    let config = FastConfig {
+    let config = Config {
         threshold: 16,
         count: 9,
         non_maximal_supression: NonMaximalSuppression::SumAbsolute,
@@ -98,7 +98,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     compare_simd_normal(&luma_view, &config, "sum_absolute_t16_c_9")?;
 
     println!("--");
-    let config = FastConfig {
+    let config = Config {
         threshold: 16,
         count: 12,
         non_maximal_supression: NonMaximalSuppression::SumAbsolute,
@@ -106,7 +106,7 @@ pub fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     compare_simd_normal(&luma_view, &config, "sum_absolute_t16_c_12")?;
 
     println!("--");
-    let config = FastConfig {
+    let config = Config {
         threshold: 32,
         count: 12,
         non_maximal_supression: NonMaximalSuppression::SumAbsolute,

@@ -14,7 +14,7 @@ pub mod fast_simd;
 
 #[derive(Copy, Debug, Clone, Eq, PartialEq, Hash, Default)]
 /// A feature point at an image position.
-pub struct FastPoint {
+pub struct Point {
     pub x: u32,
     pub y: u32,
 }
@@ -36,7 +36,8 @@ pub enum NonMaximalSuppression {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct FastConfig {
+/// Configuration struct for the FAST feature detector.
+pub struct Config {
     /// The threshold by which the values on the circle must exceed the center point to be counted
     /// towards the consecutive count.
     pub threshold: u8,
@@ -48,4 +49,9 @@ pub struct FastConfig {
 
     /// Whether to use non maximal suppression.
     pub non_maximal_supression: NonMaximalSuppression,
+}
+
+/// Function to perform the FAST keypoint detection.
+pub fn detect(img: &image::GrayImage, config: &Config) -> Vec<Point> {
+    fast_simd::detector(img, config)
 }

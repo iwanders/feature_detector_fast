@@ -1,6 +1,6 @@
 # Feature Detector FAST
 
-This is a highly optimised implementation of the FAST feature detector, described in "Machine Learning for High-Speed Corner Detection" by Rosten and Drummond, [doi](https://doi.org/10.1007/11744023_34).
+This is a highly optimised implementation of the [FAST feature detector](https://en.wikipedia.org/wiki/Features_from_accelerated_segment_test), described in "Machine Learning for High-Speed Corner Detection" by Rosten and Drummond, [doi](https://doi.org/10.1007/11744023_34).
 
 The found features from this crate are equivalent to the output of OpenCV. Runtime is almost ~~half~~ a third of OpenCV with identical image and parameters.
 

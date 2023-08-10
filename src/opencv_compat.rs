@@ -21,7 +21,7 @@ In this file, I implemented (very naively) logic that is identical to opencv:
     - The non_max_supression_opencv method matches opencv's nonmax suppression for a count of 9.
 
 */
-use crate::{FastConfig, FastPoint};
+use crate::{Config, Point};
 use image::{GenericImageView, Luma};
 
 const DO_PRINTS: bool = false;
@@ -76,7 +76,7 @@ pub fn detect(
     image: &dyn GenericImageView<Pixel = Luma<u8>>,
     t: u8,
     consecutive: u8,
-) -> Vec<FastPoint> {
+) -> Vec<Point> {
     let t = t as i16;
 
     let (width, height) = image.dimensions();
@@ -155,7 +155,7 @@ pub fn detect(
                     if DO_PRINTS {
                         println!("  Succceed by p: {p}, n: {n} at s {s}");
                     }
-                    r.push(FastPoint { x, y });
+                    r.push(Point { x, y });
                     break;
                 }
             }
@@ -206,9 +206,9 @@ pub fn non_max_suppression_opencv_score(
 /// Calculate the non max suppression.
 pub fn non_max_supression(
     image: &image::GrayImage,
-    keypoints: Vec<FastPoint>,
-    config: &crate::FastConfig,
-) -> Vec<FastPoint> {
+    keypoints: Vec<Point>,
+    config: &crate::Config,
+) -> Vec<Point> {
     if config.non_maximal_supression == crate::NonMaximalSuppression::Off {
         return keypoints;
     }
@@ -241,7 +241,7 @@ pub fn non_max_supression(
                 // check if this keypoint exists.
                 let zx = (kp.x as i32 + dx) as u32;
                 let zy = (kp.y as i32 + dy) as u32;
-                if !keypoints.contains(&FastPoint { x: zx, y: zy }) {
+                if !keypoints.contains(&Point { x: zx, y: zy }) {
                     continue;
                 }
 
@@ -293,7 +293,7 @@ pub fn score_non_max_supression_max_abs_sum(base_v: u8, circle: &[u8], t: u8) ->
     sum_dark.max(sum_light)
 }
 
-pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
+pub fn detector(img: &image::GrayImage, config: &Config) -> Vec<Point> {
     let r = detect(img, config.threshold, config.count);
 
     non_max_supression(img, r, config)

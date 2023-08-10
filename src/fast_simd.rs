@@ -48,7 +48,7 @@
 //!     According to the paper this score function is often very similar between pixels in an image.
 //!
 
-use crate::{FastConfig, FastPoint};
+use crate::{Config, Point};
 use std::arch::x86_64::*;
 
 // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#techs=MMX&avxnewtechs=AVX,AVX2&ssetechs=SSE,SSE2,SSE3,SSSE3,SSE4_1,SSE4_2
@@ -301,11 +301,7 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
 
 // It would be really nice to have feature(adt_const_params) here; https://github.com/rust-lang/rust/issues/95174
 
-pub fn detect<const NONMAX: u8>(
-    image: &image::GrayImage,
-    t: u8,
-    consecutive: u8,
-) -> Vec<FastPoint> {
+pub fn detect<const NONMAX: u8>(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<Point> {
     assert!(
         consecutive >= 9,
         "number of consecutive pixels needs to exceed 9"
@@ -550,7 +546,7 @@ pub fn detect<const NONMAX: u8>(
                         nonmax_optional_score,
                     ) {
                         if NONMAX == NONMAX_DISABLED {
-                            r.push(FastPoint { x: xx, y: y });
+                            r.push(Point { x: xx, y: y });
                         } else {
                             nonmax_y_0[xx as usize] = nonmax_score;
                         }
@@ -580,7 +576,7 @@ pub fn detect<const NONMAX: u8>(
                     nonmax_optional_score,
                 ) {
                     if NONMAX == NONMAX_DISABLED {
-                        r.push(FastPoint { x: x, y: y });
+                        r.push(Point { x: x, y: y });
                     } else {
                         nonmax_y_0[x as usize] = nonmax_score;
                     }
@@ -608,7 +604,7 @@ pub fn detect<const NONMAX: u8>(
                     let exceed_below = s > below[x - 1] && s > below[x - 0] && s > below[x + 1];
 
                     if exceed_above && exceed_cntr && exceed_below {
-                        r.push(FastPoint {
+                        r.push(Point {
                             x: x as u32,
                             y: y - 1,
                         });
@@ -830,7 +826,7 @@ unsafe fn pl(input: &__m256i) -> String {
     )
 }
 
-pub fn detector(img: &image::GrayImage, config: &FastConfig) -> Vec<FastPoint> {
+pub fn detector(img: &image::GrayImage, config: &Config) -> Vec<Point> {
     match config.non_maximal_supression {
         crate::NonMaximalSuppression::Off => {
             detect::<NONMAX_DISABLED>(img, config.threshold, config.count)
@@ -982,7 +978,7 @@ mod test {
         assert!(z);
 
         let detected = detect::<NONMAX_DISABLED>(&img, 16, 9);
-        assert_eq!(detected.contains(&FastPoint { x, y }), true);
+        assert_eq!(detected.contains(&Point { x, y }), true);
 
         // Check the score function.
         let score =
