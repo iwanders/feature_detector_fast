@@ -12,15 +12,26 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .expect(&format!("could not load image at {:?}", input_image_file))
         .to_rgb8();
 
-    let config = FastConfig {
-        threshold: 16,
-        count: 9,
-        non_maximal_supression: NonMaximalSuppression::Off,
-    };
     // let luma_view = util::Rgb8ToLuma16View::new(&orig_image);
     let luma_view = image::DynamicImage::ImageRgb8(orig_image.clone()).to_luma8();
 
-    c.bench_function("simd", |b| {
+    c.bench_function("simd_t16_c_9_off", |b| {
+        let config = FastConfig {
+            threshold: 16,
+            count: 9,
+            non_maximal_supression: NonMaximalSuppression::Off,
+        };
+        b.iter(|| {
+            let keypoints_simd = fast_simd::detector(&luma_view, &config);
+            black_box(keypoints_simd);
+        })
+    });
+    c.bench_function("simd_t16_c_12_sum_abs", |b| {
+        let config = FastConfig {
+            threshold: 16,
+            count: 12,
+            non_maximal_supression: NonMaximalSuppression::SumAbsolute,
+        };
         b.iter(|| {
             let keypoints_simd = fast_simd::detector(&luma_view, &config);
             black_box(keypoints_simd);

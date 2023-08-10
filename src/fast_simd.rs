@@ -242,11 +242,11 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
     for i in 0..consecutive {
         consec_mask[i as usize] = 0xff;
     }
-    let mut consec_mask = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&consec_mask[0]));
+    let mut consec_mask =
+        _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&consec_mask[0]));
 
     // Always 16 possibilities.
     for _ in 0..COUNT {
-
         // Now, we need to check is_above and is_below with our consecutive mask.
         // println!("is_above:      {}", pi(&is_above));
         // println!("is_below:      {}", pi(&is_below));
@@ -258,13 +258,21 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
         // println!("above_masked:  {}", pi(&above_masked));
         // println!("below_masked:  {}", pi(&below_masked));
 
-        let above_masked_tail_ff = _mm_or_si128(above_masked, _mm_andnot_si128(consec_mask, _mm_set1_epi8(-1)));
-        let below_masked_tail_ff = _mm_or_si128(below_masked, _mm_andnot_si128(consec_mask, _mm_set1_epi8(-1)));
+        let above_masked_tail_ff = _mm_or_si128(
+            above_masked,
+            _mm_andnot_si128(consec_mask, _mm_set1_epi8(-1)),
+        );
+        let below_masked_tail_ff = _mm_or_si128(
+            below_masked,
+            _mm_andnot_si128(consec_mask, _mm_set1_epi8(-1)),
+        );
 
         // println!("abov_tail_ff:  {}", pi(&above_masked_tail_ff));
         // println!("belw_tail_ff:  {}", pi(&below_masked_tail_ff));
 
-        if _mm_test_all_ones(above_masked_tail_ff) == 1 || _mm_test_all_ones(below_masked_tail_ff) == 1 {
+        if _mm_test_all_ones(above_masked_tail_ff) == 1
+            || _mm_test_all_ones(below_masked_tail_ff) == 1
+        {
             if NONMAX == NONMAX_DISABLED {
                 return true;
             } else if NONMAX == NONMAX_MAX_THRESHOLD {
@@ -915,7 +923,6 @@ mod test {
         assert_eq!(score, 20);
 
         for i in 0..20000 {
-            println!("i: {i:?}");
             let img = create_random_image(i);
             let x = img.width() / 2;
             let y = img.height() / 2;
@@ -1142,7 +1149,8 @@ mod test {
                     indices[k] = rng.next_u32() as u8;
                 }
 
-                let indices_vector = _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&indices[0]));
+                let indices_vector =
+                    _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&indices[0]));
                 let rotated_indices = _mm_rotate_across_1(indices_vector);
                 let mut back_to_thing = [0u8; 16];
                 _mm_storeu_si128(
