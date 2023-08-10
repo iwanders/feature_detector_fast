@@ -117,6 +117,7 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
     p: (u32, u32),
     t: u8,
     consecutive: u8,
+    consecutive_mask: __m128i,
     score: Option<&mut u16>,
 ) -> bool {
     trace!("\n\nDetermine keypoint at {p:?}");
@@ -236,14 +237,8 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
     trace!("below_bits    {below_bits:?}");
     trace!("above_bits    {above_bits:?}");
 
-    // Next, we need to check the 'n' consecutive pixels, we can do so with a rotating mask and some
-    // binary operations, allowing us to use tests on the entire vector.
-    let mut consec_mask = [0u8; 16];
-    for i in 0..consecutive {
-        consec_mask[i as usize] = 0xff;
-    }
-    let mut consec_mask =
-        _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&consec_mask[0]));
+
+    let mut consec_mask = consecutive_mask;
 
     // Always 16 possibilities.
     for _ in 0..COUNT {
@@ -335,9 +330,17 @@ pub fn detect<const NONMAX: u8>(image: &image::GrayImage, t: u8, consecutive: u8
     // calculate the circle offsets for the data once.
     let circle_offset = calculate_offsets(width);
 
+
+
     unsafe {
+
         // Load a vector of thresholds.
         let m128_threshold = _mm_set1_epi8(i8::from_ne_bytes(t.to_ne_bytes()));
+
+
+        // Next, we need to check the 'n' consecutive pixels, we can do so with a rotating mask and some
+        // binary operations, allowing us to use tests on the entire vector.
+        let consec_mask = _mm_create_consecutive_mask(consecutive);
 
         for y in 3..(height - 3) {
             //     15 0 1
@@ -543,6 +546,7 @@ pub fn detect<const NONMAX: u8>(image: &image::GrayImage, t: u8, consecutive: u8
                         (xx, y),
                         t as u8,
                         consecutive,
+                        consec_mask,
                         nonmax_optional_score,
                     ) {
                         if NONMAX == NONMAX_DISABLED {
@@ -573,6 +577,7 @@ pub fn detect<const NONMAX: u8>(image: &image::GrayImage, t: u8, consecutive: u8
                     (x, y),
                     t as u8,
                     consecutive,
+                    consec_mask,
                     nonmax_optional_score,
                 ) {
                     if NONMAX == NONMAX_DISABLED {
@@ -654,13 +659,7 @@ pub fn keypoint_score_max_threshold(base_v: u8, pixels: __m128i, consecutive: u8
         // Make that mutable, we'll rotate it as we go along.
         let mut difference_vector = difference_vector_plus_512;
 
-        // Next up, create a mask of 'consecutive' long.
-        let mut consec_mask = [0u16; 16];
-        for i in 0..consecutive {
-            consec_mask[i as usize] = 0xffff;
-        }
-        let consec_mask =
-            _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&consec_mask[0]));
+        let consec_mask = _mm256_create_consecutive_mask(consecutive);
         let and_not_mask = _mm256_andnot_si256(consec_mask, _mm256_set1_epi8(-1));
 
         // Allocate vectors to hold the min and max value found in each 'consecutive' block.
@@ -792,6 +791,22 @@ unsafe fn _mm256_rotate_across_2(difference_vector: __m256i) -> __m256i {
     let rotated = _mm256_blendv_epi8(rotated, rotated_swap, mask);
     // println!("rot      {}", pl(&rotated));
     rotated
+}
+
+unsafe fn _mm_create_consecutive_mask(consecutive: u8) -> __m128i {
+    let mut consec_mask = [0u8; 16];
+    for i in 0..consecutive {
+        consec_mask[i as usize] = 0xff;
+    }
+    _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&consec_mask[0]))
+}
+
+unsafe fn _mm256_create_consecutive_mask(consecutive: u8) -> __m256i {
+    let mut consec_mask = [0u16; 16];
+    for i in 0..consecutive {
+        consec_mask[i as usize] = 0xffff;
+    }
+    _mm256_loadu_si256(std::mem::transmute::<_, *const __m256i>(&consec_mask[0]))
 }
 
 /// Rotate an m128 by one bytes, not crossing lanes.
@@ -972,6 +987,7 @@ mod test {
                 (x, y),
                 threshold,
                 count_minimum,
+                _mm_create_consecutive_mask(count_minimum),
                 None,
             )
         };
@@ -994,6 +1010,7 @@ mod test {
                 (x, y),
                 threshold,
                 count_minimum,
+                _mm_create_consecutive_mask(count_minimum),
                 Some(&mut calculated_score),
             )
         };
