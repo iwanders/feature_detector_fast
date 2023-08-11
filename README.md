@@ -4,7 +4,7 @@ This is a highly optimised implementation of the [FAST feature detector](https:/
 
 > Rosten, E., Drummond, T. (2006). Machine Learning for High-Speed Corner Detection. In: Leonardis, A., Bischof, H., Pinz, A. (eds) Computer Vision – ECCV 2006. ECCV 2006. Lecture Notes in Computer Science, vol 3951. Springer, Berlin, Heidelberg. https://doi.org/10.1007/11744023_34
 
-The features detected by this implementation are identical to those found by OpenCV for the same image and parameters. This implementation makes heavy use of the AVX2 instruction set to achieve the highest possible throughput; runtime is almost ~~half~~ a third of OpenCV, while providing the exact same results.
+The features detected by this implementation are identical to those found by OpenCV (3.2.0, the AVX2 implementation) for the same image and parameters. This implementation makes heavy use of the AVX2 instruction set to achieve the highest possible throughput; runtime is almost ~~half~~ a third of OpenCV's AVX2 implementation, while providing the exact same results.
 
 In addition to this, the minimum consecutive pixel count is configurable (as opposed to OpenCV), with 9 being the lower bound, up to the entire circle of 16 pixels. At 12 an additional cardinal direction check is possible, allowing for even more speedups in images where a consecutive count of `n >= 12` is feasible.
 
