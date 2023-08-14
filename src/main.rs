@@ -1,6 +1,19 @@
 use feature_detector_fast::{util, Config, NonMaximalSuppression};
 use image;
 
+fn write_keypoints(
+    points: &[feature_detector_fast::Point],
+    filename: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::fs::File;
+    use std::io::prelude::*;
+    let mut file = File::create(filename)?;
+    for p in points.iter() {
+        file.write_all(format!("{} {}\n", p.x, p.y).as_bytes())?;
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().len() == 1
         || (std::env::args().len() == 2 && std::env::args().nth(1) == Some("--help".to_string()))
@@ -14,6 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output_image_file = std::env::args()
         .nth(2)
         .unwrap_or("/tmp/output.png".to_string());
+    let output_txt_file = output_image_file.replace(".png", ".txt");
     let threshold = std::env::args()
         .nth(3)
         .unwrap_or("16".to_string())
@@ -62,6 +76,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         util::draw_plus_sized(&mut rgb_owned, (kp.x, kp.y), util::RED, 1);
     }
     let _ = rgb_owned.save(&output_image_file)?;
+
+    write_keypoints(&keypoints, &output_txt_file)?;
 
     Ok(())
 }
