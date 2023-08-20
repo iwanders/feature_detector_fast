@@ -1,5 +1,8 @@
+//! Some misc helper functions
+
 use image::{GenericImageView, Luma, Rgb};
 
+/// Convert a rgb8 to a luma16 view.
 pub struct Rgb8ToLuma16View<'a> {
     img: &'a dyn GenericImageView<Pixel = Rgb<u8>>,
 }
@@ -37,11 +40,16 @@ impl<'a> image::GenericImageView for Rgb8ToLuma16View<'a> {
     }
 }
 
+/// The color white.
 pub const WHITE: Rgb<u8> = Rgb([255u8, 255u8, 255u8]);
+/// The color red.
 pub const RED: Rgb<u8> = Rgb([255u8, 0u8, 0u8]);
+/// The color green.
 pub const GREEN: Rgb<u8> = Rgb([0u8, 255u8, 0u8]);
+/// The color blue.
 pub const BLUE: Rgb<u8> = Rgb([0u8, 0u8, 255u8]);
 
+/// Draw a plus on the image of a certain color.
 pub fn draw_plus<I>(image: &mut I, (x, y): (u32, u32), color: I::Pixel)
 where
     I: image::GenericImage,
@@ -50,6 +58,7 @@ where
     draw_plus_sized(image, (x, y), color, 3);
 }
 
+/// Draw a plus of specified size on the image of a certain color.
 pub fn draw_plus_sized<I>(image: &mut I, (x, y): (u32, u32), color: I::Pixel, size: u32)
 where
     I: image::GenericImage,

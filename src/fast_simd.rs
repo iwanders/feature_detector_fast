@@ -297,8 +297,8 @@ unsafe fn determine_keypoint<const NONMAX: u8>(
 }
 
 // It would be really nice to have feature(adt_const_params) here; https://github.com/rust-lang/rust/issues/95174
-
-pub fn detect<const NONMAX: u8>(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<Point> {
+/// Internal method to perform the feature detection.
+fn detect<const NONMAX: u8>(image: &image::GrayImage, t: u8, consecutive: u8) -> Vec<Point> {
     assert!(
         consecutive >= 9,
         "number of consecutive pixels needs to exceed 9"
@@ -717,6 +717,8 @@ pub fn keypoint_score_max_threshold(base_v: u8, pixels: __m128i, consecutive: u8
     }
 }
 
+/// Calculate the keypoint score as the sum of the absolute difference for either darker or brighter
+/// points. This is equation 3 from the paper.
 pub fn keypoint_score_sum_abs_difference(
     pixels: __m128i,
     centers: __m128i,
