@@ -700,7 +700,7 @@ pub fn keypoint_score_max_threshold(base_v: u8, pixels: __m128i, consecutive: u8
         let min_values_from_top = _mm256_sub_epi16(_mm256_set1_epi16(1024), min_values_vector);
         let lowest_min_values = _mm256_minpos_epu16(min_values_from_top);
         // And finally translate this back to a signed value.
-        let extreme_highest = 1024 - lowest_min_values as i16 - 512;
+        let extreme_highest = 1024i16 - lowest_min_values as i16 - 512i16;
 
         // And our min operation.
         let max_values_vector =
@@ -708,7 +708,7 @@ pub fn keypoint_score_max_threshold(base_v: u8, pixels: __m128i, consecutive: u8
         let max_values_from_top = _mm256_sub_epi16(_mm256_set1_epi16(1024), max_values_vector);
         let lowest_max_values = _mm256_minpos_epu16(max_values_from_top);
         // And finally translate this back to a signed value.
-        let extreme_lowest = (lowest_max_values - (1024 + 512 + 1)) as i16;
+        let extreme_lowest = ((lowest_max_values as i16) - (1024 + 512 + 1)) as i16;
 
         // Take the absolute minimum of both to determine the max 't' for which this is a point.
         let res = extreme_highest.abs().min(extreme_lowest.abs()) as u16;
