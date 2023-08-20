@@ -51,6 +51,13 @@ pub struct Config {
     pub non_maximal_supression: NonMaximalSuppression,
 }
 
+impl Config {
+    /// Method access to run the detector.
+    pub fn detect(&self, img: &image::GrayImage) -> Vec<Point> {
+        fast_simd::detector(img, self)
+    }
+}
+
 /// Function to perform the FAST keypoint detection.
 pub fn detect(img: &image::GrayImage, config: &Config) -> Vec<Point> {
     fast_simd::detector(img, config)
