@@ -1,5 +1,7 @@
 /*!
 
+This implementation aims to exactly match the OpenCV implementation of FAST.
+
 The original author's source code can be found here:
     <https://web.archive.org/web/20070708064606/http://mi.eng.cam.ac.uk/~er258/work/fast.html>
 
@@ -58,6 +60,7 @@ pub const fn circle() -> [(i32, i32); 16] {
     ]
 }
 
+/// Retrieve a point on the circle.
 const fn point(index: u8) -> (i32, i32) {
     circle()[index as usize % circle().len()]
 }
@@ -72,6 +75,7 @@ pub fn make_circle_image() -> image::RgbImage {
     image
 }
 
+/// Perform the detection on a grayscale image.
 pub fn detect(
     image: &dyn GenericImageView<Pixel = Luma<u8>>,
     t: u8,
@@ -164,6 +168,7 @@ pub fn detect(
     r
 }
 
+/// Calculate the non maximal suppression score that OpenCV would calculate.
 pub fn non_max_suppression_opencv_score(
     image: &image::GrayImage,
     (x, y): (u32, u32),
@@ -203,7 +208,7 @@ pub fn non_max_suppression_opencv_score(
     extreme_highest.abs().min(extreme_lowest.abs()) as u16
 }
 
-/// Calculate the non max suppression.
+/// Perform the non max suppression on an a vector of keypoints.
 pub fn non_max_supression(
     image: &image::GrayImage,
     keypoints: Vec<Point>,
@@ -293,6 +298,7 @@ pub fn score_non_max_supression_max_abs_sum(base_v: u8, circle: &[u8], t: u8) ->
     sum_dark.max(sum_light)
 }
 
+/// Run the feature detector given the provided image and configuration.
 pub fn detector(img: &image::GrayImage, config: &Config) -> Vec<Point> {
     let r = detect(img, config.threshold, config.count);
 

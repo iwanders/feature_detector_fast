@@ -97,7 +97,9 @@ pub const fn circle() -> [(i32, i32); 16] {
     ]
 }
 
+/// Type alias to hold the relative memory offsets for the individual points.
 pub type CircleOffsets = [i32; 16];
+
 /// Calculate the offets in the memory block for an image of a certain width.
 pub fn calculate_offsets(width: u32) -> CircleOffsets {
     let mut circle_offset = [0i32; 16];
@@ -789,6 +791,7 @@ unsafe fn _mm256_rotate_across_2(difference_vector: __m256i) -> __m256i {
     rotated
 }
 
+/// Create the mask of 'n' consecutive 0xFF bytes.
 unsafe fn _mm_create_consecutive_mask(consecutive: u8) -> __m128i {
     let mut consec_mask = [0u8; 16];
     for i in 0..consecutive {
@@ -797,6 +800,7 @@ unsafe fn _mm_create_consecutive_mask(consecutive: u8) -> __m128i {
     _mm_loadu_si128(std::mem::transmute::<_, *const __m128i>(&consec_mask[0]))
 }
 
+/// Create a mask of 'n' consecutive 0xffff bytes.
 unsafe fn _mm256_create_consecutive_mask(consecutive: u8) -> __m256i {
     let mut consec_mask = [0u16; 16];
     for i in 0..consecutive {
@@ -837,6 +841,7 @@ unsafe fn pl(input: &__m256i) -> String {
     )
 }
 
+/// Detect features in the provided grayscale image with the provided configuration.
 pub fn detector(img: &image::GrayImage, config: &Config) -> Vec<Point> {
     match config.non_maximal_supression {
         crate::NonMaximalSuppression::Off => {
